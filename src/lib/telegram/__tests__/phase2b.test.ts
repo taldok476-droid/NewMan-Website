@@ -23,3 +23,22 @@ describe("Phase 2B business behavior",()=>{
  it("12 validates a natural report query structure",()=>expect(parsedIntentSchema.parse({intent:"REPORT_QUERY",create_groups:[],report:{employee_reference:"מואיד",project_reference:null,date_reference:"ספטמבר",date_from_reference:null,date_to_reference:null},missing_information:[]}).intent).toBe("REPORT_QUERY"));
  it("13 merges follow-up project with previous report filters",()=>expect(mergeReportFilters({employeeReference:"מואיד",from:"2026-09-01",to:"2026-09-30"},{projectReference:"טל"})).toMatchObject({employeeReference:"מואיד",projectReference:"טל"}));
 });
+
+describe("natural Hebrew current-month dates",()=>{
+  it.each([
+    ["ב21 לחודש","2026-09-21"],
+    ["ב-21 לחודש","2026-09-21"],
+    ["ב 21 לחודש","2026-09-21"],
+    ["ביום 21 לחודש","2026-09-21"],
+    ["בתאריך 21 לחודש","2026-09-21"],
+    ["ב5 לחודש","2026-09-05"],
+    ["ב-5 לחודש","2026-09-05"],
+    ["בראשון לחודש","2026-09-01"],
+    ["ב-21","2026-09-21"],
+    ["ביום 21","2026-09-21"],
+    ["ב21.9","2026-09-21"],
+    ["ב21/9","2026-09-21"],
+  ])("resolves %s deterministically",(expression,expected)=>expect(resolveDateReference(expression,businessDate)).toBe(expected));
+  it("rejects day 31 in September",()=>expect(resolveDateReference("ב31 לחודש",businessDate)).toBeNull());
+  it("keeps today and yesterday behavior",()=>{expect(resolveDateReference("היום",businessDate)).toBe("2026-09-30");expect(resolveDateReference("אתמול",businessDate)).toBe("2026-09-29");});
+});
