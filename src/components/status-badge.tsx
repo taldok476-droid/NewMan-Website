@@ -1,0 +1,1 @@
+import { statusLabel } from "@/lib/format"; export function StatusBadge({status}:{status:string}){const c=status==='active'?'bg-emerald-50 text-emerald-700':status==='paused'?'bg-amber-50 text-amber-700':'bg-slate-100 text-slate-600';return <span className={`badge ${c}`}>{statusLabel[status]}</span>}

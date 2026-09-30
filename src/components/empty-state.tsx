@@ -1,0 +1,1 @@
+import { Inbox } from "lucide-react"; export function EmptyState({text="אין נתונים להצגה"}:{text?:string}){return <div className="empty"><Inbox className="mx-auto mb-3 text-slate-300" size={36}/><p>{text}</p></div>}

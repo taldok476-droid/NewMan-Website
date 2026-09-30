@@ -1,0 +1,2 @@
+import { PageHeader } from "@/components/page-header"; import { logout } from "../actions";
+export default function Settings(){return <><PageHeader title="הגדרות" description="הגדרות חשבון ומערכת"/><div className="card p-5 max-w-xl"><h2 className="font-bold mb-2">חשבון משתמש</h2><p className="text-sm text-slate-500 mb-5">משתמשים חדשים מנוהלים דרך ממשק Supabase בלבד. אין הרשמה עצמית במערכת.</p><form action={logout}><button className="btn btn-secondary">התנתקות</button></form></div></>}

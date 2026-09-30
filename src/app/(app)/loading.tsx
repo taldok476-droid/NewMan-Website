@@ -1,0 +1,1 @@
+export default function Loading(){return <div className="space-y-4 animate-pulse"><div className="h-8 w-48 bg-slate-200 rounded"/><div className="grid grid-cols-4 gap-4">{[1,2,3,4].map(x=><div key={x} className="h-28 bg-slate-200 rounded"/>)}</div><div className="h-80 bg-slate-200 rounded"/></div>}

@@ -1,0 +1,1 @@
+"use client"; export default function ErrorPage({reset}:{reset:()=>void}){return <div className="card p-10 text-center"><h2 className="text-xl font-bold">אירעה שגיאה</h2><p className="text-slate-500 my-3">לא הצלחנו לטעון את הנתונים. נסו שוב.</p><button onClick={reset} className="btn btn-primary">ניסיון נוסף</button></div>}
