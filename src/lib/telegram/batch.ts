@@ -1,4 +1,5 @@
 import { formatBusinessDate } from "./dates";
+import type { ParsedIntent } from "./ai/schema";
 
 export type DraftOperation = "insert" | "update";
 
@@ -27,6 +28,24 @@ export type DraftTotals = {
   inserts: number;
   updates: number;
 };
+
+export function inheritCreateGroupDates(parsed: ParsedIntent): ParsedIntent {
+  if (parsed.intent !== "CREATE_TIME_ENTRIES") return parsed;
+  let activeDate = "";
+  return {
+    ...parsed,
+    create_groups: parsed.create_groups.map((group) => {
+      const ownDate = group.date_reference.trim();
+      if (ownDate) activeDate = ownDate;
+      return { ...group, date_reference: ownDate || activeDate };
+    }),
+  };
+}
+
+export function missingReferenceQuestion(field: "project" | "employee", employeeName?: string): string {
+  if (field === "project") return `לא הצלחתי לזהות באיזה פרויקט עבד ${employeeName?.trim() || "העובד"}. באיזה פרויקט לדווח אותו?`;
+  return "לא הצלחתי לזהות את שם העובד באחת מקבוצות הדיווח. מה שם העובד?";
+}
 
 export function calculateDraftTotals(entries: ResolvedDraftEntry[]): DraftTotals {
   const regularHours = entries.reduce((sum, entry) => sum + entry.regular_hours, 0);

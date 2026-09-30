@@ -7,6 +7,7 @@ const patterns = [
   new RegExp(`^(${dateExpression})\\s+(.+?)\\s+עבד(?:ה)?\\s+אצל\\s+(.+?)\\s+${number}\\s+שעות$`),
   new RegExp(`^(${dateExpression})\\s+(.+?)\\s+עבד(?:ה)?\\s+${number}\\s+שעות\\s+אצל\\s+(.+?)$`),
   new RegExp(`^(${dateExpression})\\s+(.+?)\\s+עבד(?:ה)?\\s+ב([^\\s].*?)\\s+${number}\\s+שעות$`),
+  new RegExp(`^(${dateExpression})\\s+(.+?)\\s+(?:עבד(?:ה)?|עובד(?:ת)?|היה|הייתה)\\s+עם\\s+(.+?)\\s+${number}\\s+שעות$`),
 ];
 
 export function parseSimpleTimeEntry(message: string): ParsedIntent | null {
@@ -39,6 +40,7 @@ export function parseSimpleTimeEntry(message: string): ParsedIntent | null {
     /^(.+?)\s+עבד(?:ה)?\s+(\d+(?:\.\d+)?)\s+שעות\s+אצל\s+(.+?)$/,
     /^(.+?)\s+עבד(?:ה)?\s+ב([^\s].*?)\s+(\d+(?:\.\d+)?)\s+שעות$/,
     /^(.+?)\s+עבד(?:ה)?\s+(\d+(?:\.\d+)?)\s+שעות\s+ב([^\s].*?)$/,
+    /^(.+?)\s+(?:עבד(?:ה)?|עובד(?:ת)?|היה|הייתה)\s+עם\s+(.+?)\s+(\d+(?:\.\d+)?)\s+שעות$/,
   ];
   for (let index = 0; index < anywherePatterns.length; index += 1) {
     const match = withoutDate.match(anywherePatterns[index]);
@@ -61,6 +63,35 @@ export function parseSimpleTimeEntry(message: string): ParsedIntent | null {
     };
   }
   return null;
+}
+
+function parseMultilineGroup(line:string,dateReference:string):ParsedIntent["create_groups"][number]|null{
+  const extracted=extractDateExpression(line);
+  const withoutDate=extracted?`${line.slice(0,extracted.start)} ${line.slice(extracted.end)}`.replace(/\s+/g," ").trim():line.trim().replace(/\s+/g," ");
+  const relation=withoutDate.match(/^(.+?)\s+(?:(?:עבד(?:ה)?|עובד(?:ת)?|היה|הייתה)\s+)?(?:אצל|עם)\s+(.+?)\s+(\d+(?:\.\d+)?)\s+שעות$/);
+  const prefixedProject=withoutDate.match(/^(.+?)\s+(?:(?:עבד(?:ה)?|עובד(?:ת)?|היה|הייתה)\s+)?ב([^\s].*?)\s+(\d+(?:\.\d+)?)\s+שעות$/);
+  const match=relation??prefixedProject;
+  if(!match)return null;
+  const hours=Number(match[3]);
+  if(!Number.isFinite(hours)||hours<=0||hours>24)return null;
+  return{date_reference:extracted?.expression??dateReference,project_reference:match[2],entries:[{employee_reference:match[1],regular_hours:hours,overtime_hours:null,notes:null}]};
+}
+
+/** Deterministic path for clear newline-separated single-employee work groups. */
+export function parseMultilineTimeEntries(message:string):ParsedIntent|null{
+  const lines=message.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
+  if(lines.length<2)return null;
+  const groups:ParsedIntent["create_groups"]=[];
+  let activeDate="";
+  for(const line of lines){
+    const explicitDate=extractDateExpression(line)?.expression;
+    if(explicitDate)activeDate=explicitDate;
+    if(!activeDate)return null;
+    const group=parseMultilineGroup(line,activeDate);
+    if(!group)return null;
+    groups.push(group);
+  }
+  return{intent:"CREATE_TIME_ENTRIES",create_groups:groups,report:null,missing_information:[]};
 }
 
 export type ReadOnlyIntent="PROJECTS_LIST"|"EMPLOYEES_LIST"|"TODAY_STATUS";
