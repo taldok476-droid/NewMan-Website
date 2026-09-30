@@ -20,7 +20,11 @@ export class OpenAIHebrewIntentProvider implements HebrewIntentProvider {
         body: JSON.stringify({
           model,
           store: false,
-          instructions: "Extract Hebrew workforce intent to the schema. Read-only intents: PROJECTS_LIST, EMPLOYEES_LIST, TODAY_STATUS. Copy name/project/date references verbatim; never invent IDs, dates, or hours. Missing hours=null plus missing_information=['hours']. Split multiple projects into groups. Use previous filters only for report follow-ups. Unrelated input=UNKNOWN.",
+          instructions: `Extract Hebrew workforce intent to the strict schema. Read-only intents: PROJECTS_LIST, EMPLOYEES_LIST, TODAY_STATUS.
+For CREATE_TIME_ENTRIES, emit one create_group per distinct date+project segment. Copy every employee, project, and date reference from the message; never invent IDs, calendar dates, people, projects, or hours. Server code resolves all references and dates.
+Preserve local grouping and hour scope: "כולם 8" or "שניהם 8" applies only to the immediately associated local employees. If a shared hours value follows a named employee list, repeat that value on each entry. If employees have different hours, preserve each value and never apply the last value globally. Inherit a date only within segments where Hebrew wording clearly does so. Multiple explicit dates must remain separate groups.
+Missing or ambiguous hours must be null and add "hours" to missing_information. Split multiple projects and dates into groups. Keep overtime separate only when explicitly stated; otherwise use null. Do not merge repeated names across different projects or dates.
+Use previous filters only for report follow-ups. Unrelated input=UNKNOWN.`,
           input: JSON.stringify({ message, context }),
           reasoning: /^(gpt-[56]|o[134])/.test(model) ? { effort: "low" } : undefined,
           text: { format: { type: "json_schema", name: "newman_intent", strict: true, schema: parsedIntentJsonSchema } },

@@ -8,8 +8,8 @@ const createGroupSchema = z.object({
     regular_hours: z.number().nullable(),
     overtime_hours: z.number().nullable(),
     notes: z.string().nullable(),
-  })),
-});
+  }).strict()).min(1).max(30),
+}).strict();
 
 const reportSchema = z.object({
   employee_reference: z.string().nullable(),
@@ -21,10 +21,10 @@ const reportSchema = z.object({
 
 export const parsedIntentSchema = z.object({
   intent: z.enum(["CREATE_TIME_ENTRIES", "REPORT_QUERY", "PROJECTS_LIST", "EMPLOYEES_LIST", "TODAY_STATUS", "UNKNOWN"]),
-  create_groups: z.array(createGroupSchema),
+  create_groups: z.array(createGroupSchema).max(30),
   report: reportSchema.nullable(),
   missing_information: z.array(z.string()),
-});
+}).strict();
 
 export type ParsedIntent = z.infer<typeof parsedIntentSchema>;
 
@@ -36,6 +36,7 @@ export const parsedIntentJsonSchema = {
     intent: { type: "string", enum: ["CREATE_TIME_ENTRIES", "REPORT_QUERY", "PROJECTS_LIST", "EMPLOYEES_LIST", "TODAY_STATUS", "UNKNOWN"] },
     create_groups: {
       type: "array",
+      maxItems: 30,
       items: {
         type: "object",
         additionalProperties: false,
@@ -45,6 +46,8 @@ export const parsedIntentJsonSchema = {
           project_reference: { type: "string" },
           entries: {
             type: "array",
+            minItems: 1,
+            maxItems: 30,
             items: {
               type: "object",
               additionalProperties: false,
