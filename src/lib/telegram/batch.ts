@@ -48,6 +48,24 @@ function hours(entry: Pick<ResolvedDraftEntry, "regular_hours" | "overtime_hours
   return entry.regular_hours + entry.overtime_hours;
 }
 
+function hebrewNameList(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} ו${names.at(-1)}`;
+}
+
+export function formatActionSummary(entries: ResolvedDraftEntry[]): string {
+  const totals = calculateDraftTotals(entries);
+  const updatedEmployees = [...new Map(
+    entries.filter((entry) => entry.operation === "update").map((entry) => [entry.employee_id, entry.employee_name]),
+  ).values()];
+  const updateNames = hebrewNameList(updatedEmployees);
+  if (!totals.inserts) return `סיכום: יעודכנו השעות ל${updateNames}`;
+  const inserts = totals.inserts === 1 ? "יבוצע דיווח חדש אחד" : `יבוצעו ${totals.inserts} דיווחים חדשים`;
+  if (!totals.updates) return `סיכום: ${inserts}`;
+  const updates = updatedEmployees.length === 1 ? `ועדכון שעות ל${updateNames}` : `ועדכוני שעות ל${updateNames}`;
+  return `סיכום: ${inserts} ${updates}`;
+}
+
 export function formatCombinedDraft(entries: ResolvedDraftEntry[]): string {
   const byDate = new Map<string, Map<string, ResolvedDraftEntry[]>>();
   for (const entry of entries) {
@@ -58,19 +76,18 @@ export function formatCombinedDraft(entries: ResolvedDraftEntry[]): string {
   const body = [...byDate].map(([date, projects]) => [
     `📅 ${formatBusinessDate(date)}`,
     ...[...projects].map(([project, rows]) => `📍 ${project}\n${rows.map((entry) => {
-      if (entry.operation === "insert") return `• ${entry.employee_name} — ${hours(entry)} שעות · חדש`;
+      if (entry.operation === "insert") return `• ${entry.employee_name} — ${hours(entry)} שעות`;
       const existing = Number(entry.existing_regular_hours) + Number(entry.existing_overtime_hours);
-      return `• ${entry.employee_name} — קיים: ${existing} → חדש: ${hours(entry)} שעות ⚠️`;
+      return `• ${entry.employee_name}\n  קיים: ${existing} שעות\n  חדש: ${hours(entry)} שעות\n  ⚠️ עדכון דיווח קיים`;
     }).join("\n")}`),
   ].join("\n\n")).join("\n\n");
   const totals = calculateDraftTotals(entries);
   const totalsText = [
-    `${totals.uniqueEmployees} עובדים · ${totals.entries} דיווחים`,
-    `${totals.projects} פרויקטים · ${totals.dates} תאריכים`,
-    `${totals.regularHours} רגילות + ${totals.overtimeHours} נוספות = ${totals.totalHours} שעות`,
-    `${totals.inserts} חדשים · ${totals.updates} עדכונים`,
+    `עובדים: ${totals.uniqueEmployees}`,
+    `פרויקטים: ${totals.projects}`,
+    `כמות שעות עבודה: ${totals.totalHours}`,
   ].join("\n");
-  return `📝 טיוטת דיווח\n\n${body}\n\nסה״כ:\n${totalsText}\n\nהאם לשמור את הדיווחים?`;
+  return `📝 טיוטת דיווח\n\n${body}\n\nסה״כ:\n${totalsText}\n\n${formatActionSummary(entries)}\n\nהאם לשמור את הדיווחים?`;
 }
 
 export function confirmationButtonText(entries: ResolvedDraftEntry[]): string {

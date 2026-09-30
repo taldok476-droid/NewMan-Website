@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateDraftTotals, confirmationButtonText, duplicateProposalKeys, formatCombinedDraft, type ResolvedDraftEntry } from "../batch";
+import { calculateDraftTotals, confirmationButtonText, duplicateProposalKeys, formatActionSummary, formatCombinedDraft, type ResolvedDraftEntry } from "../batch";
 import { parsedIntentSchema, type ParsedIntent } from "../ai/schema";
 import { buildClarificationState, selectClarification } from "../clarification";
 import { resolveDateReference } from "../dates";
@@ -66,12 +66,51 @@ describe("combined draft, totals, and duplicates", () => {
   ];
 
   it("calculates every total server-side", () => expect(calculateDraftTotals(mixed)).toEqual({uniqueEmployees:4,entries:4,projects:2,dates:1,regularHours:33.5,overtimeHours:1,totalHours:34.5,inserts:3,updates:1}));
-  it("formats one grouped draft", () => {const text=formatCombinedDraft(mixed);expect(text).toContain("עובדי רג״י טל");expect(text).toContain("לשם - שוהם");expect(text).toContain("4 עובדים · 4 דיווחים");});
-  it("marks one duplicate without labelling new rows as updates", () => {const text=formatCombinedDraft(mixed);expect(text).toContain("אמיר — קיים: 8 → חדש: 10 שעות ⚠️");expect(text).toContain("קייס — 8 שעות · חדש");});
+  it("formats one grouped draft", () => {const text=formatCombinedDraft(mixed);expect(text).toContain("עובדי רג״י טל");expect(text).toContain("לשם - שוהם");expect(text).toContain("עובדים: 4");expect(text).toContain("פרויקטים: 2");expect(text).toContain("כמות שעות עבודה: 34.5");});
+  it("marks one duplicate without labelling new rows as updates", () => {const text=formatCombinedDraft(mixed);expect(text).toContain("אמיר\n  קיים: 8 שעות\n  חדש: 10 שעות\n  ⚠️ עדכון דיווח קיים");expect(text).toContain("• קייס — 8 שעות");});
   it("uses a mixed-operation confirmation label", () => expect(confirmationButtonText(mixed)).toBe("✅ שמירת 3 חדשים + עדכון 1"));
   it("supports an all-update batch", () => expect(confirmationButtonText(mixed.map(row=>({...row,operation:"update" as const,existing_regular_hours:8,existing_overtime_hours:0})))).toBe("✅ אישור ועדכון 4"));
   it("detects repeated proposed keys before drafting", () => expect(duplicateProposalKeys([entry(),entry()])).toHaveLength(1));
   it("allows the same employee on another project or date", () => expect(duplicateProposalKeys([entry(),entry({project_id:"p2"}),entry({work_date:"2026-10-01"})])).toEqual([]));
+});
+
+describe("management-oriented action summary", () => {
+  it("summarizes only new entries", () => {
+    expect(formatActionSummary([entry(),entry({employee_id:"e2",employee_name:"קייס"}),entry({employee_id:"e3",employee_name:"אמיר"})]))
+      .toBe("סיכום: יבוצעו 3 דיווחים חדשים");
+  });
+
+  it("uses singular Hebrew for one new entry", () => {
+    expect(formatActionSummary([entry()])).toBe("סיכום: יבוצע דיווח חדש אחד");
+  });
+
+  it("summarizes new entries plus one updated employee", () => {
+    const rows=[entry(),entry({employee_id:"e2",employee_name:"קייס"}),entry({employee_id:"e3",employee_name:"יוסף נחאש",operation:"update",existing_regular_hours:8,existing_overtime_hours:0})];
+    expect(formatActionSummary(rows)).toBe("סיכום: יבוצעו 2 דיווחים חדשים ועדכון שעות ליוסף נחאש");
+  });
+
+  it("uses natural punctuation for several updated employees", () => {
+    const rows=[entry(),entry({employee_id:"e2",employee_name:"יוסף נחאש",operation:"update"}),entry({employee_id:"e3",employee_name:"מואיד",operation:"update"}),entry({employee_id:"e4",employee_name:"קייס",operation:"update"})];
+    expect(formatActionSummary(rows)).toBe("סיכום: יבוצע דיווח חדש אחד ועדכוני שעות ליוסף נחאש, מואיד וקייס");
+  });
+
+  it("summarizes updates-only batches", () => {
+    const rows=[entry({employee_name:"יוסף נחאש",operation:"update"}),entry({employee_id:"e2",employee_name:"מואיד",operation:"update"})];
+    expect(formatActionSummary(rows)).toBe("סיכום: יעודכנו השעות ליוסף נחאש ומואיד");
+  });
+
+  it("does not repeat an employee updated in multiple entries", () => {
+    const rows=[entry({employee_name:"יוסף נחאש",operation:"update"}),entry({project_id:"p2",project_name:"לשם - שוהם",employee_name:"יוסף נחאש",operation:"update"})];
+    expect(formatActionSummary(rows)).toBe("סיכום: יעודכנו השעות ליוסף נחאש");
+  });
+
+  it("keeps technical totals internal and out of the rendered totals section", () => {
+    const text=formatCombinedDraft([entry()]);
+    expect(text).not.toContain("דיווחים\n");
+    expect(text).not.toContain("תאריכים");
+    expect(text).not.toContain("רגילות +");
+    expect(text).not.toContain("חדשים ·");
+  });
 });
 
 describe("entity resolution and sequential clarification", () => {
