@@ -1,6 +1,7 @@
 import "server-only";
 import { isChatAuthorized } from "./auth";
-import { getActiveEmployees, getActiveProjects, getTodayEntries } from "./data";
+import { getTodayEntries } from "./data";
+import { getCachedActiveEmployees, getCachedActiveProjects } from "./reference-cache";
 import { commandList, formatNameList, formatStartMessage, formatTodayEntries } from "./format";
 
 const unauthorizedMessage = "אין הרשאה להשתמש בבוט זה.";
@@ -22,9 +23,9 @@ export async function routeCommand(chatId: number, text: string): Promise<string
     case "/start":
       return formatStartMessage();
     case "/projects":
-      return formatNameList("פרויקטים פעילים:", await getActiveProjects(), "לא נמצאו פרויקטים פעילים.");
+      return formatNameList("פרויקטים פעילים:", (await getCachedActiveProjects()).map(project=>project.name), "לא נמצאו פרויקטים פעילים.");
     case "/employees":
-      return formatNameList("עובדים פעילים:", await getActiveEmployees(), "לא נמצאו עובדים פעילים.");
+      return formatNameList("עובדים פעילים:", (await getCachedActiveEmployees()).map(employee=>employee.name), "לא נמצאו עובדים פעילים.");
     case "/today":
       return formatTodayEntries(await getTodayEntries());
     case "/help":

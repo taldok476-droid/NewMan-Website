@@ -40,3 +40,13 @@ export async function answerCallbackQuery(callbackQueryId: string, text?: string
   });
   if (!response.ok) throw new Error(`Telegram answerCallbackQuery failed with status ${response.status}`);
 }
+
+export async function sendChatAction(chatId: number, action: "typing" = "typing"): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("Missing TELEGRAM_BOT_TOKEN");
+  const response = await fetch(`https://api.telegram.org/bot${token}/sendChatAction`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, action }), cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`Telegram sendChatAction failed with status ${response.status}`);
+}

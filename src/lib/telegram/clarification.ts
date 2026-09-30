@@ -1,0 +1,6 @@
+import type { NamedEntity } from "./resolution";
+
+export type ClarificationKind="employee"|"project";
+export type ClarificationSelection={kind:ClarificationKind;reference:string;entity:NamedEntity};
+export function buildClarificationState(args:{clarificationId:string;telegramUserId:number;parsed:unknown;forced:ClarificationSelection[];kind:ClarificationKind;reference:string;options:NamedEntity[]}){return{kind:"clarification" as const,clarificationId:args.clarificationId,telegramUserId:args.telegramUserId,parsed:args.parsed,forced:args.forced,pendingKind:args.kind,pendingReference:args.reference,options:args.options};}
+export function selectClarification(context:Record<string,unknown>,clarificationId:string,optionIndex:number,userId:number){if(context.kind!=="clarification"||context.clarificationId!==clarificationId||Number(context.telegramUserId)!==userId)return null;const options=Array.isArray(context.options)?context.options as NamedEntity[]:[],selected=options[optionIndex];if(!selected)return null;const forced=Array.isArray(context.forced)?[...context.forced] as ClarificationSelection[]:[];forced.push({kind:context.pendingKind as ClarificationKind,reference:String(context.pendingReference),entity:selected});return{parsed:context.parsed,forced};}

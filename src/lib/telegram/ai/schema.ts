@@ -20,7 +20,7 @@ const reportSchema = z.object({
 });
 
 export const parsedIntentSchema = z.object({
-  intent: z.enum(["CREATE_TIME_ENTRIES", "REPORT_QUERY", "UNKNOWN"]),
+  intent: z.enum(["CREATE_TIME_ENTRIES", "REPORT_QUERY", "PROJECTS_LIST", "EMPLOYEES_LIST", "TODAY_STATUS", "UNKNOWN"]),
   create_groups: z.array(createGroupSchema),
   report: reportSchema.nullable(),
   missing_information: z.array(z.string()),
@@ -33,7 +33,7 @@ export const parsedIntentJsonSchema = {
   additionalProperties: false,
   required: ["intent", "create_groups", "report", "missing_information"],
   properties: {
-    intent: { type: "string", enum: ["CREATE_TIME_ENTRIES", "REPORT_QUERY", "UNKNOWN"] },
+    intent: { type: "string", enum: ["CREATE_TIME_ENTRIES", "REPORT_QUERY", "PROJECTS_LIST", "EMPLOYEES_LIST", "TODAY_STATUS", "UNKNOWN"] },
     create_groups: {
       type: "array",
       items: {
