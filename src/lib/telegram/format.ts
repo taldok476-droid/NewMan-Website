@@ -13,7 +13,7 @@ export const commandList = [
 ].join("\n");
 
 export function formatStartMessage(): string {
-  return `שלום 👋\nברוכים הבאים למערכת NEWMAN.\n\nהבוט מחובר בהצלחה למערכת ניהול העובדים והפרויקטים.\n\nפקודות זמינות:\n${commandList}`;
+  return `שלום 👋\nברוכים הבאים למערכת NEWMAN.\n\nהבוט מחובר בהצלחה למערכת ניהול העובדים והפרויקטים.\n\nאפשר גם לכתוב בקשה טבעית בעברית, למשל: היום מואיד עבד אצל טל 8 שעות.\n\nפקודות זמינות:\n${commandList}`;
 }
 
 export function formatNameList(title: string, names: string[], empty: string): string {

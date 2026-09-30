@@ -40,3 +40,17 @@ npm run telegram:register -- https://your-production-domain.example
 ```
 
 הסקריפט קורא את הסודות ממשתני הסביבה ואינו מדפיס אותם. להרשאה ראשונית, שלחו לבוט `/myid`, העתיקו את המספר שהתקבל אל `TELEGRAM_ALLOWED_CHAT_IDS` (מספר מזהים מופרדים בפסיקים), ועדכנו את ה-deployment.
+
+## Telegram Phase 2B
+
+הריצו גם את `supabase/migrations/20260930020000_telegram_ai_drafts.sql`. הוסיפו לסביבת השרת בלבד:
+
+```env
+OPENAI_API_KEY=
+OPENAI_MODEL=
+TELEGRAM_CREATED_BY_USER_ID=
+```
+
+`TELEGRAM_CREATED_BY_USER_ID` הוא UUID של משתמש Auth קיים שאליו יש לייחס דיווחים שנוצרו בידי הבוט. לאחר deployment יש להריץ שוב את `npm run telegram:register -- https://your-production-domain.example`, משום שהרישום כולל כעת גם `callback_query` עבור כפתורי אישור וביטול.
+
+ה-AI מקבל שמות ישויות והקשר קצר בלבד ומחזיר Structured Output. הוא אינו מקבל מפתחות Supabase, אינו מקבל כלי כתיבה למסד הנתונים ואינו מבצע חישובים סמכותיים. טיוטות פגות לאחר 30 דקות והקשר שיחה לאחר 15 דקות.

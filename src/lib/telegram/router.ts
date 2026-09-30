@@ -28,8 +28,8 @@ export async function routeCommand(chatId: number, text: string): Promise<string
     case "/today":
       return formatTodayEntries(await getTodayEntries());
     case "/help":
-      return `הבוט מאפשר צפייה בנתוני NEWMAN.\n\n${commandList}`;
+      return `הבוט מאפשר צפייה ודיווח בנתוני NEWMAN. אפשר לכתוב בקשות טבעיות בעברית, למשל "היום מואיד עבד אצל טל 8 שעות" או "כמה שעות עבד מואיד החודש?".\n\n${commandList}`;
     default:
-      return "הפקודה אינה מוכרת. לקבלת עזרה ניתן לשלוח /help";
+      return command.startsWith("/") ? "הפקודה אינה מוכרת. לקבלת עזרה ניתן לשלוח /help" : null;
   }
 }

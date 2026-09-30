@@ -1,0 +1,3 @@
+export function parseDraftCallback(data:string){const match=data.match(/^(confirm|update|cancel):([0-9a-f-]{36})$/i);return match?{action:match[1] as "confirm"|"update"|"cancel",draftId:match[2]}:null;}
+export function draftAvailability(status:string,expiresAt:string,now=new Date()){if(status==="confirmed")return"already_confirmed";if(status==="cancelled")return"cancelled";if(status==="expired"||new Date(expiresAt)<=now)return"expired";return status==="pending"?"available":"not_found";}
+export function mergeReportFilters<T extends Record<string,unknown>>(previous:T|null,current:T):T{return{...(previous||{}),...Object.fromEntries(Object.entries(current).filter(([,v])=>v!==null&&v!==undefined&&v!==""))} as T;}
