@@ -14,11 +14,13 @@ export type ReportRow = {
   project_id: string;
   regular_hours: number;
   overtime_hours: number;
-  employee: { first_name: string; last_name: string } | null;
+  source: string;
+  notes: string | null;
+  employee: { first_name: string; last_name: string; employee_number: string } | null;
   project: { name: string } | null;
 };
 
-export type ReportBreakdown = { id: string; name: string; days: number; hours: number };
+export type ReportBreakdown = { id: string; name: string; employeeNumber?:string; employees?:number; days: number; regularHours:number; overtimeHours:number; hours: number };
 export type ReportResult = {
   period: ReportPeriod;
   employees: number;
@@ -29,6 +31,7 @@ export type ReportResult = {
   totalHours: number;
   byEmployee: ReportBreakdown[];
   byProject: ReportBreakdown[];
+  rows: ReportRow[];
 };
 
 const monthEntries = Object.entries(HEBREW_MONTHS) as Array<[keyof typeof HEBREW_MONTHS, number]>;
@@ -78,14 +81,14 @@ export function formatEmptyReport(period:ReportPeriod,employeeName?:string,proje
 }
 
 function aggregate(rows:ReportRow[],key:"employee"|"project"):ReportBreakdown[]{
-  const groups=new Map<string,{name:string;days:Set<string>;hours:number}>();
-  for(const row of rows){const id=key==="employee"?row.employee_id:row.project_id;const name=key==="employee"?`${row.employee?.first_name??""} ${row.employee?.last_name??""}`.trim():row.project?.name??"פרויקט לא ידוע";const group=groups.get(id)??{name,days:new Set<string>(),hours:0};group.days.add(row.work_date);group.hours+=row.regular_hours+row.overtime_hours;groups.set(id,group);}
-  return[...groups].map(([id,value])=>({id,name:value.name,days:value.days.size,hours:value.hours})).sort((a,b)=>b.hours-a.hours||a.name.localeCompare(b.name,"he"));
+  const groups=new Map<string,{name:string;employeeNumber?:string;days:Set<string>;employees:Set<string>;regularHours:number;overtimeHours:number}>();
+  for(const row of rows){const id=key==="employee"?row.employee_id:row.project_id;const name=key==="employee"?`${row.employee?.first_name??""} ${row.employee?.last_name??""}`.trim():row.project?.name??"פרויקט לא ידוע";const group=groups.get(id)??{name,employeeNumber:key==="employee"?row.employee?.employee_number:undefined,days:new Set<string>(),employees:new Set<string>(),regularHours:0,overtimeHours:0};group.days.add(row.work_date);group.employees.add(row.employee_id);group.regularHours+=row.regular_hours;group.overtimeHours+=row.overtime_hours;groups.set(id,group);}
+  return[...groups].map(([id,value])=>({id,name:value.name,employeeNumber:value.employeeNumber,employees:key==="project"?value.employees.size:undefined,days:value.days.size,regularHours:value.regularHours,overtimeHours:value.overtimeHours,hours:value.regularHours+value.overtimeHours})).sort((a,b)=>a.name.localeCompare(b.name,"he"));
 }
 
 export function buildReportResult(rows:ReportRow[],period:ReportPeriod):ReportResult {
   const regularHours=rows.reduce((sum,row)=>sum+row.regular_hours,0),overtimeHours=rows.reduce((sum,row)=>sum+row.overtime_hours,0);
-  return{period,employees:new Set(rows.map(row=>row.employee_id)).size,projects:new Set(rows.map(row=>row.project_id)).size,workDays:new Set(rows.map(row=>row.work_date)).size,regularHours,overtimeHours,totalHours:regularHours+overtimeHours,byEmployee:aggregate(rows,"employee"),byProject:aggregate(rows,"project")};
+  return{period,employees:new Set(rows.map(row=>row.employee_id)).size,projects:new Set(rows.map(row=>row.project_id)).size,workDays:new Set(rows.map(row=>row.work_date)).size,regularHours,overtimeHours,totalHours:regularHours+overtimeHours,byEmployee:aggregate(rows,"employee"),byProject:aggregate(rows,"project"),rows};
 }
 
 function bullets(rows:ReportBreakdown[],withDays=false):string{return rows.map(row=>`• ${row.name} — ${withDays?`${row.days} ימי עבודה — `:""}${row.hours} שעות`).join("\n");}
@@ -98,3 +101,5 @@ export function formatReportResult(result:ReportResult,args:{type:"COMPANY"|"WHO
   if(args.type==="PROJECT")return`📍 ${args.projectName}\n📅 ${result.period.label}\n\nעובדים: ${result.employees}\nימי עבודה: ${result.workDays}\nכמות שעות עבודה: ${result.totalHours}${overtime}\n\nלפי עובד:\n${bullets(result.byEmployee)}`;
   return`📊 דוח שעות — ${result.period.label}\n\nעובדים: ${result.employees}\nפרויקטים: ${result.projects}\nימי עבודה: ${result.workDays}\nכמות שעות עבודה: ${result.totalHours}${overtime}\n\nפירוט לפי עובד:\n${bullets(result.byEmployee)}\n\nפירוט לפי פרויקט:\n${bullets(result.byProject)}`;
 }
+
+export function formatExcelTelegramSummary(result:ReportResult):string{return`📊 דוח שעות — ${result.period.label}\n\nעובדים: ${result.employees}\nפרויקטים: ${result.projects}\nכמות שעות עבודה: ${result.totalHours}\n\nמצורף דוח Excel מפורט.`;}

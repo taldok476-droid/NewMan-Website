@@ -50,3 +50,11 @@ export async function sendChatAction(chatId: number, action: "typing" = "typing"
   });
   if (!response.ok) throw new Error(`Telegram sendChatAction failed with status ${response.status}`);
 }
+
+export async function sendDocument(chatId:number,data:Buffer,filename:string):Promise<void>{
+  const token=process.env.TELEGRAM_BOT_TOKEN;
+  if(!token)throw new Error("Missing TELEGRAM_BOT_TOKEN");
+  const bytes=new Uint8Array(data.byteLength);bytes.set(data);const form=new FormData();form.set("chat_id",String(chatId));form.set("document",new Blob([bytes.buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}),filename);
+  const response=await fetch(`https://api.telegram.org/bot${token}/sendDocument`,{method:"POST",body:form,cache:"no-store"});
+  if(!response.ok)throw new Error(`Telegram sendDocument failed with status ${response.status}`);
+}

@@ -1,5 +1,7 @@
 import type { ParsedIntent } from "./ai/schema";
 import { extractDateExpression } from "./dates";
+import { resolveReportPeriod } from "./reports";
+import { resolveEntity, type NamedEntity } from "./resolution";
 
 const dateExpression = String.raw`(?:היום|אתמול|ב(?:-|\s)?\d{1,2}\s*לחודש|ביום\s+\d{1,2}\s*לחודש|בתאריך\s+\d{1,2}\s*לחודש|בראשון\s*לחודש|ב(?:-|\s)?\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?)`;
 const number = String.raw`(\d+(?:\.\d+)?)`;
@@ -102,8 +104,26 @@ export function parseSimpleReportQuery(message:string):ParsedIntent|null{
   const text=message.trim().replace(/[?؟!]$/g,"").replace(/\s+/g," ");
   const who=text.match(new RegExp(`^מי עבד (?:ב)?(${reportPeriod})$`));
   const all=text.match(new RegExp(`^(?:תן לי )?דוח(?: שעות)? (?:של )?כל העובדים (?:ב)?(${reportPeriod})$`));
-  const company=text.match(new RegExp(`^כמה שעות עשינו (?:ב)?(${reportPeriod})$`))??text.match(new RegExp(`^(?:תן לי )?דוח (?:ל)?(${reportPeriod})$`));
+  const company=text.match(new RegExp(`^כמה שעות (?:עשינו|היו) (?:ב)?(${reportPeriod})$`))??text.match(new RegExp(`^(?:(?:תן|תכין|תוציא) לי )?(?:דוח(?: אקסל)?(?: שעות)?|אקסל)(?: של| ל)? (?:ב)?(${reportPeriod})$`));
   const match=who??all??company;
   if(!match)return null;
-  return{intent:"REPORT_QUERY",create_groups:[],report:{report_type:who?"WHO_WORKED":"COMPANY",employee_reference:null,project_reference:null,date_reference:match[1],date_from_reference:null,date_to_reference:null},missing_information:[]};
+  const output_format=/(?:אקסל|קובץ|תכין|תוציא)/.test(text)?"EXCEL":"TEXT";
+  return{intent:"REPORT_QUERY",create_groups:[],report:{report_type:who?"WHO_WORKED":"COMPANY",output_format,employee_reference:null,project_reference:null,date_reference:match[1],date_from_reference:null,date_to_reference:null},missing_information:[]};
+}
+
+function splitReportSubjectAndPeriod(value:string,businessDate:string):{subject:string;period:string}|null{const words=value.trim().split(/\s+/);for(let index=1;index<words.length;index+=1){const period=words.slice(index).join(" ");if(resolveReportPeriod(period,businessDate))return{subject:words.slice(0,index).join(" "),period};}return null;}
+function reportIntent(type:NonNullable<ParsedIntent["report"]>["report_type"],format:"TEXT"|"EXCEL",period:string,employee:string|null,project:string|null):ParsedIntent{return{intent:"REPORT_QUERY",create_groups:[],report:{report_type:type,output_format:format,employee_reference:employee,project_reference:project,date_reference:period,date_from_reference:null,date_to_reference:null},missing_information:[]};}
+export function parseEntityReportQuery(message:string,businessDate:string,employees:NamedEntity[],projects:NamedEntity[]):ParsedIntent|null{
+  const text=message.trim().replace(/[?؟!]$/g,"").replace(/\s+/g," "),format=/(?:אקסל|קובץ|תכין|תוציא)/.test(text)?"EXCEL":"TEXT";
+  const employeeRequest=text.match(/^כמה שעות עבד (.+)$/);
+  if(employeeRequest){const split=splitReportSubjectAndPeriod(employeeRequest[1],businessDate);if(split){const employee=resolveEntity(split.subject,employees);if(employee.kind==="resolved")return reportIntent("EMPLOYEE",format,split.period,split.subject,null);}}
+  const projectRequest=text.match(/^כמה שעות היו ב(.+)$/);
+  if(projectRequest){const split=splitReportSubjectAndPeriod(projectRequest[1],businessDate);if(split){const project=resolveEntity(split.subject,projects);if(project.kind==="resolved")return reportIntent("PROJECT",format,split.period,null,split.subject);}}
+  const generated=text.match(/^(?:(?:תן|תכין|תוציא) לי )?(?:דוח(?: אקסל)?(?: שעות)?|אקסל) של (.+)$/);
+  if(!generated)return null;const split=splitReportSubjectAndPeriod(generated[1],businessDate);if(!split)return null;
+  const combined=split.subject.match(/^(.+?)\s+ב(.+)$/);if(combined){const employee=resolveEntity(combined[1],employees),project=resolveEntity(combined[2],projects);if(employee.kind==="resolved"&&project.kind==="resolved")return reportIntent("EMPLOYEE_PROJECT",format,split.period,combined[1],combined[2]);}
+  const employee=resolveEntity(split.subject,employees),project=resolveEntity(split.subject,projects);
+  if(employee.kind==="resolved"&&project.kind==="not_found")return reportIntent("EMPLOYEE",format,split.period,split.subject,null);
+  if(project.kind==="resolved"&&employee.kind==="not_found")return reportIntent("PROJECT",format,split.period,null,split.subject);
+  return null;
 }

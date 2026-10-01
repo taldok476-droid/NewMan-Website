@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { answerCallbackQuery, sendChatAction, sendMessage } from "@/lib/telegram/api";
+import { answerCallbackQuery, sendChatAction, sendDocument, sendMessage } from "@/lib/telegram/api";
 import { isChatAuthorized, isValidWebhookSecret } from "@/lib/telegram/auth";
 import { claimTelegramUpdate, releaseTelegramUpdate } from "@/lib/telegram/data";
 import { routeCommand } from "@/lib/telegram/router";
@@ -7,6 +7,7 @@ import { telegramUpdateSchema } from "@/lib/telegram/types";
 import { handleClarificationCallback, handleNaturalMessage } from "@/lib/telegram/natural";
 import { handleDraftCallback } from "@/lib/telegram/callbacks";
 import { TelegramPerformance } from "@/lib/telegram/performance";
+import { EXCEL_DELIVERY_FAILURE_MESSAGE } from "@/lib/telegram/delivery";
 
 export const runtime = "nodejs";
 
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
       } else if (authorized) {
         await timing.measure("typing",()=>sendChatAction(message.chat.id));
         const naturalReply = await handleNaturalMessage(message.chat.id, message.from?.id ?? message.chat.id, message.text, timing);
-        await timing.measure("telegram_send",()=>sendMessage(message.chat.id, naturalReply.text, { inlineKeyboard: naturalReply.inlineKeyboard }));
+        await timing.measure("telegram_send",async()=>{await sendMessage(message.chat.id,naturalReply.text,{inlineKeyboard:naturalReply.inlineKeyboard});if(naturalReply.document){try{await sendDocument(message.chat.id,naturalReply.document.data,naturalReply.document.filename);}catch(error){console.error("Telegram Excel delivery failed",{updateId:parsed.data.update_id,error:error instanceof Error?error.message:"Unknown error"});await sendMessage(message.chat.id,EXCEL_DELIVERY_FAILURE_MESSAGE);}}});
         timing.log({updateId:parsed.data.update_id,flow:"natural"});
       }
     }

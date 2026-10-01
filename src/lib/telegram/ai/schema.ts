@@ -13,6 +13,7 @@ const createGroupSchema = z.object({
 
 const reportSchema = z.object({
   report_type: z.enum(["COMPANY", "WHO_WORKED", "EMPLOYEE", "PROJECT", "EMPLOYEE_PROJECT"]),
+  output_format: z.enum(["TEXT", "EXCEL"]),
   employee_reference: z.string().nullable(),
   project_reference: z.string().nullable(),
   date_reference: z.string().nullable(),
@@ -70,9 +71,10 @@ export const parsedIntentJsonSchema = {
         {
           type: "object",
           additionalProperties: false,
-          required: ["report_type", "employee_reference", "project_reference", "date_reference", "date_from_reference", "date_to_reference"],
+          required: ["report_type", "output_format", "employee_reference", "project_reference", "date_reference", "date_from_reference", "date_to_reference"],
           properties: {
             report_type: { type: "string", enum: ["COMPANY", "WHO_WORKED", "EMPLOYEE", "PROJECT", "EMPLOYEE_PROJECT"] },
+            output_format: { type: "string", enum: ["TEXT", "EXCEL"] },
             employee_reference: { type: ["string", "null"] },
             project_reference: { type: ["string", "null"] },
             date_reference: { type: ["string", "null"] },

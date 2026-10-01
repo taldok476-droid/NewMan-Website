@@ -9,9 +9,9 @@ const months=[
 ] as const;
 
 const rows:ReportRow[]=[
-  {work_date:"2026-09-01",employee_id:"e1",project_id:"p1",regular_hours:8,overtime_hours:0,employee:{first_name:"מואיד",last_name:""},project:{name:"עובדי רג״י טל"}},
-  {work_date:"2026-09-02",employee_id:"e1",project_id:"p2",regular_hours:7,overtime_hours:1,employee:{first_name:"מואיד",last_name:""},project:{name:"לשם - שוהם"}},
-  {work_date:"2026-09-02",employee_id:"e2",project_id:"p2",regular_hours:8,overtime_hours:0,employee:{first_name:"יוסף",last_name:"נחאש"},project:{name:"לשם - שוהם"}},
+  {work_date:"2026-09-01",employee_id:"e1",project_id:"p1",regular_hours:8,overtime_hours:0,source:"telegram",notes:null,employee:{first_name:"מואיד",last_name:"",employee_number:"100"},project:{name:"עובדי רג״י טל"}},
+  {work_date:"2026-09-02",employee_id:"e1",project_id:"p2",regular_hours:7,overtime_hours:1,source:"telegram",notes:"לילה",employee:{first_name:"מואיד",last_name:"",employee_number:"100"},project:{name:"לשם - שוהם"}},
+  {work_date:"2026-09-02",employee_id:"e2",project_id:"p2",regular_hours:8,overtime_hours:0,source:"web",notes:null,employee:{first_name:"יוסף",last_name:"נחאש",employee_number:"101"},project:{name:"לשם - שוהם"}},
 ];
 
 describe("deterministic report periods",()=>{

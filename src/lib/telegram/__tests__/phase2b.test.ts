@@ -20,7 +20,7 @@ describe("Phase 2B business behavior",()=>{
  it("9 requires an explicit update callback for duplicates",()=>expect(parseDraftCallback("update:11111111-1111-1111-1111-111111111111")?.action).toBe("update"));
  it("10 recognizes an already confirmed draft",()=>expect(draftAvailability("confirmed","2099-01-01T00:00:00Z")).toBe("already_confirmed"));
  it("11 recognizes an expired draft",()=>expect(draftAvailability("pending","2020-01-01T00:00:00Z",new Date("2026-01-01"))).toBe("expired"));
- it("12 validates a natural report query structure",()=>expect(parsedIntentSchema.parse({intent:"REPORT_QUERY",create_groups:[],report:{report_type:"EMPLOYEE",employee_reference:"מואיד",project_reference:null,date_reference:"ספטמבר",date_from_reference:null,date_to_reference:null},missing_information:[]}).intent).toBe("REPORT_QUERY"));
+ it("12 validates a natural report query structure",()=>expect(parsedIntentSchema.parse({intent:"REPORT_QUERY",create_groups:[],report:{report_type:"EMPLOYEE",output_format:"TEXT",employee_reference:"מואיד",project_reference:null,date_reference:"ספטמבר",date_from_reference:null,date_to_reference:null},missing_information:[]}).intent).toBe("REPORT_QUERY"));
  it("13 merges follow-up project with previous report filters",()=>expect(mergeReportFilters({employeeReference:"מואיד",from:"2026-09-01",to:"2026-09-30"},{projectReference:"טל"})).toMatchObject({employeeReference:"מואיד",projectReference:"טל"}));
 });
 
