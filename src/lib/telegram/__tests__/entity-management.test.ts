@@ -1,7 +1,7 @@
 import {describe,expect,it} from "vitest";
 import {parsedIntentSchema} from "../ai/schema";
 import {draftAvailability,parseDraftCallback} from "../business";
-import {assessCreationDuplicate,creationFromFollowUp,formatCreationDraft,parseEntityCreationIntent,splitEmployeeName} from "../entity-management";
+import {assessCreationDuplicate,creationFromFollowUp,formatCreationDraft,isCreationCancellation,parseEntityCreationIntent,splitEmployeeName} from "../entity-management";
 import {parseAttendanceList} from "../fast-path";
 
 describe("deterministic Telegram entity-creation intent",()=>{
@@ -37,6 +37,16 @@ describe("deterministic Telegram entity-creation intent",()=>{
     expect(creationFromFollowUp("employee","אחמד מחמוד")).toMatchObject({intent:"CREATE_EMPLOYEE",entity_creation:{name:"אחמד מחמוד"}});
     expect(creationFromFollowUp("project","מגדלי ראשון")).toMatchObject({intent:"CREATE_PROJECT",entity_creation:{name:"מגדלי ראשון"}});
   });
+  it.each(["תפתח לי פרויקט חדש","תקים לי פרויקט חדש","תיצור לי פרויקט חדש","תוסיף פרויקט","אני רוצה לפתוח פרויקט חדש"])("recognizes missing project name in %s",message=>expect(parseEntityCreationIntent(message)).toMatchObject({intent:"CREATE_PROJECT",entity_creation:{name:null}}));
+  it.each([
+    ["תפתח לי פרויקט חדש בשם בדיקה","בדיקה"],
+    ["תקים פרויקט בשם לשם - שוהם","לשם - שוהם"],
+    ["תוסיף פרויקט שנקרא מגדלי ראשון","מגדלי ראשון"],
+    ["אני רוצה להוסיף פרויקט בשם עבודות נשר","עבודות נשר"],
+  ])("extracts only the explicit project name from %s",(message,name)=>expect(parseEntityCreationIntent(message)?.entity_creation?.name).toBe(name));
+  it.each(["תוסיף לי עובד חדש","תיצור לי עובד חדש"])("recognizes missing employee name in %s",message=>expect(parseEntityCreationIntent(message)).toMatchObject({intent:"CREATE_EMPLOYEE",entity_creation:{name:null}}));
+  it("extracts an explicit employee name without command leakage",()=>expect(parseEntityCreationIntent("תוסיף לי עובד חדש בשם אחמד מחמוד")?.entity_creation?.name).toBe("אחמד מחמוד"));
+  it.each(["ביטול","בטל","עזוב","לא משנה"])("recognizes follow-up cancellation %s",message=>expect(isCreationCancellation(message)).toBe(true));
 });
 
 describe("safe creation drafts and duplicate assessment",()=>{
@@ -44,6 +54,8 @@ describe("safe creation drafts and duplicate assessment",()=>{
   it("blocks an exact normalized duplicate",()=>expect(assessCreationDuplicate("אחמד מוחמד",employees)).toMatchObject({kind:"exact",entity:{id:"e1"}}));
   it("warns about a safely resolved similar name",()=>expect(assessCreationDuplicate("אחמד מחמד",employees)).toMatchObject({kind:"similar",entity:{id:"e1"}}));
   it("allows a distinct name",()=>expect(assessCreationDuplicate("מואיד חטיב",employees).kind).toBe("none"));
+  it("blocks an exact project duplicate after a name follow-up",()=>{const followUp=creationFromFollowUp("project","לשם - שוהם");expect(assessCreationDuplicate(followUp.entity_creation!.name!,[{id:"p1",name:"לשם - שוהם"}]).kind).toBe("exact");});
+  it("warns about a similar project after a name follow-up",()=>{const followUp=creationFromFollowUp("project","מגדלי ראשון");expect(assessCreationDuplicate(followUp.entity_creation!.name!,[{id:"p1",name:"מגדלי ראשון שלב א"}]).kind).toBe("similar");});
   it("formats employee and project confirmation drafts",()=>{
     expect(formatCreationDraft("employee","אחמד מחמוד","0501234567")).toContain("האם ליצור את העובד?");
     expect(formatCreationDraft("project","מגדלי ראשון",null,"מגדלי ראשון - שלב א")).toContain("פרויקט עם שם דומה");

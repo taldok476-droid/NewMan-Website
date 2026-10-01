@@ -7,33 +7,27 @@ function result(kind:EntityCreationKind,name:string|null,phone:string|null=null)
   return{intent:kind==="employee"?"CREATE_EMPLOYEE":"CREATE_PROJECT",create_groups:[],entity_creation:{name,phone},report:null,missing_information:name?[]:["name"]};
 }
 
-function cleanName(value:string,kind:EntityCreationKind){
-  const noun=kind==="employee"?"עובד":"פרויקט";
-  return value.replace(/^את\s+/,"").replace(new RegExp(`^${noun}\\s*`),"").replace(/^חדש\s+/,"").replace(/^בשם\s+/,"").replace(/\s+(?:תוסיף|תוסיפו)\s+(?:אותו|אותה)$/ ,"").trim();
-}
+function cleanExplicitName(value:string){return value.replace(/\s+(?:תוסיף|תוסיפו)\s+(?:אותו|אותה)$/ ,"").trim();}
 
 /** Conservative, high-confidence parser; unusual phrasing remains for the AI fallback. */
 export function parseEntityCreationIntent(message:string):ParsedIntent|null{
   let text=message.trim().replace(/[.!?]+$/g,"").replace(/\s+/g," ");
   const phone=text.match(/\s+טלפון\s+([+\d][\d-]{7,15})$/);
   if(phone)text=text.slice(0,phone.index).trim();
-  const employee=text.match(/^(?:(?:אני רוצה|בוא)\s+)?(?:להוסיף|נוסיף|תוסיף|תיצור|תקים|תפתח|תרשום(?: לי)?|תכניס(?: למערכת)?)\s+(.+)$/)??text.match(/^עובד חדש\s+(.+)$/)??text.match(/^יש (?:לי )?עובד חדש(?: בשם)?\s+(.+)$/);
-  if(employee&&(text.includes("עובד")||text.includes("לעובדים"))){
-    const name=cleanName(employee[1].replace(/\s+לעובדים$/,"").trim(),"employee");
-    return result("employee",name||null,phone?.[1]??null);
-  }
-  const project=text.match(/^(?:(?:אני רוצה|בוא)\s+)?(?:להוסיף|נוסיף|תוסיף|תיצור|תקים|תפתח|לפתוח|תרשום(?: לי)?|תכניס(?: למערכת)?)\s+(.+)$/)??text.match(/^פרויקט חדש\s+(.+)$/)??text.match(/^יש לנו פרויקט חדש(?: בשם)?\s+(.+)$/);
-  if(project&&(text.includes("פרויקט")||text.includes("לפרויקטים"))){
-    const name=cleanName(project[1].replace(/\s+לפרויקטים$/,"").trim(),"project");
-    return result("project",name||null);
-  }
-  const missingEmployee=text.match(/^(?:תוסיף|תיצור|תקים|תפתח)\s+עובד(?: חדש)?$/);
-  if(missingEmployee)return result("employee",null);
-  const missingProject=text.match(/^(?:תוסיף|תיצור|תקים|תפתח)\s+פרויקט(?: חדש)?$/);
-  return missingProject?result("project",null):null;
+  const verb=String.raw`(?:להוסיף|נוסיף|תוסיף|תיצור|תקים|תפתח|לפתוח|תרשום|תכניס)`;
+  const employeeCommand=text.match(new RegExp(`^(?:(?:אני רוצה|בוא)\\s+)?${verb}(?:\\s+לי)?(?:\\s+למערכת)?\\s+(?:את\\s+)?עובד(?:\\s+חדש)?(?:\\s+(?:בשם|שנקרא)\\s+(.+)|\\s+(.+))?$`));
+  if(employeeCommand){const name=cleanExplicitName(employeeCommand[1]??employeeCommand[2]??"");return result("employee",name||null,phone?.[1]??null);}
+  const employeeList=text.match(new RegExp(`^(?:(?:אני רוצה|בוא)\\s+)?${verb}\\s+(?:את\\s+)?(.+?)\\s+לעובדים$`))??text.match(/^יש (?:לי )?עובד חדש(?: בשם)?\s+(.+)$/)??text.match(/^עובד חדש(?: בשם)?(?:\s+(.+))?$/);
+  if(employeeList){const name=cleanExplicitName(employeeList[1]??"");return result("employee",name||null,phone?.[1]??null);}
+  const projectCommand=text.match(new RegExp(`^(?:(?:אני רוצה|בוא)\\s+)?${verb}(?:\\s+לי)?(?:\\s+למערכת)?\\s+(?:את\\s+)?פרויקט(?:\\s+חדש)?(?:\\s+(?:בשם|שנקרא)\\s+(.+)|\\s+(.+))?$`));
+  if(projectCommand){const name=cleanExplicitName(projectCommand[1]??projectCommand[2]??"");return result("project",name||null);}
+  const projectList=text.match(new RegExp(`^(?:(?:אני רוצה|בוא)\\s+)?${verb}\\s+(?:את\\s+)?(.+?)\\s+לפרויקטים$`))??text.match(/^יש לנו פרויקט חדש(?: בשם)?\s+(.+)$/)??text.match(/^פרויקט חדש(?: בשם)?(?:\s+(.+))?$/);
+  if(projectList){const name=cleanExplicitName(projectList[1]??"");return result("project",name||null);}
+  return null;
 }
 
 export function creationFromFollowUp(kind:EntityCreationKind,message:string):ParsedIntent{return result(kind,message.trim()||null);}
+export function isCreationCancellation(message:string){return /^(?:ביטול|בטל|עזוב|לא משנה)[.!]?$/i.test(message.trim());}
 
 export function assessCreationDuplicate(name:string,entities:NamedEntity[]){
   const exact=entities.find(entity=>normalizeHebrew(entity.name)===normalizeHebrew(name));

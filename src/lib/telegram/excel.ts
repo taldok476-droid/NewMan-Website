@@ -43,12 +43,12 @@ export async function generateExcelReport(result:ReportResult,scope:ExcelReportS
 
   const employees=workbook.addWorksheet("לפי עובדים");setupSheet(employees,[28,14,16,16,16]);
   styleHeader(employees.addRow(["עובד","ימי עבודה","שעות רגילות","שעות נוספות","סה״כ שעות"]));
-  result.byEmployee.forEach(row=>employees.addRow([row.name,row.days,row.regularHours,row.overtimeHours,row.hours]));
+  result.byEmployee.forEach(row=>employees.addRow([row.name,row.workDays,row.regularHours,row.overtimeHours,row.hours]));
   const employeeTotal=employees.addRow(["סה״כ",result.workDays,result.regularHours,result.overtimeHours,result.totalHours]);styleTotals(employeeTotal);hoursFormat(employees,[2,3,4,5]);addTableFilter(employees,"E",Math.max(1,employees.rowCount-1));
 
   const projects=workbook.addWorksheet("לפי פרויקטים");setupSheet(projects,[32,16,14,16,16,16]);
   styleHeader(projects.addRow(["פרויקט","מספר עובדים","ימי עבודה","שעות רגילות","שעות נוספות","סה״כ שעות"]));
-  result.byProject.forEach(row=>projects.addRow([row.name,row.employees??0,row.days,row.regularHours,row.overtimeHours,row.hours]));
+  result.byProject.forEach(row=>projects.addRow([row.name,row.employees??0,row.workDays,row.regularHours,row.overtimeHours,row.hours]));
   const projectTotal=projects.addRow(["סה״כ",result.employees,result.workDays,result.regularHours,result.overtimeHours,result.totalHours]);styleTotals(projectTotal);hoursFormat(projects,[2,3,4,5,6]);addTableFilter(projects,"F",Math.max(1,projects.rowCount-1));
 
   const details=workbook.addWorksheet("פירוט דיווחים");setupSheet(details,[15,26,30,16,16,16,16,35]);

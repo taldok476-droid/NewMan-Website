@@ -31,6 +31,14 @@ export async function sendMessage(
   }
 }
 
+export async function editMessageText(chatId:number,messageId:number,text:string,options:SendMessageOptions={}):Promise<void>{
+  const token=process.env.TELEGRAM_BOT_TOKEN;if(!token)throw new Error("Missing TELEGRAM_BOT_TOKEN");
+  const response=await fetch(`https://api.telegram.org/bot${token}/editMessageText`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({chat_id:chatId,message_id:messageId,text,parse_mode:options.parseMode,disable_web_page_preview:true,reply_markup:{inline_keyboard:options.inlineKeyboard??[]}}),cache:"no-store"});
+  if(!response.ok)throw new Error(`Telegram editMessageText failed with status ${response.status}`);
+}
+async function removeInlineKeyboard(chatId:number,messageId:number){const token=process.env.TELEGRAM_BOT_TOKEN;if(!token)return;await fetch(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({chat_id:chatId,message_id:messageId,reply_markup:{inline_keyboard:[]}}),cache:"no-store"});}
+export async function editCallbackMessage(chatId:number,messageId:number,text:string,options:SendMessageOptions={}):Promise<void>{try{await editMessageText(chatId,messageId,text,options);}catch{await removeInlineKeyboard(chatId,messageId).catch(()=>undefined);await sendMessage(chatId,text,options);}}
+
 export async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error("Missing TELEGRAM_BOT_TOKEN");

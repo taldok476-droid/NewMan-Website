@@ -1,3 +1,214 @@
-import Link from "next/link";import{notFound}from"next/navigation";import{PageHeader}from"@/components/page-header";import{EmptyState}from"@/components/empty-state";import{StatusBadge}from"@/components/status-badge";import{TimeEntryActions}from"@/components/time-entry-actions";import{createClient}from"@/lib/supabase/server";import{formatHebrewDate,getBusinessDate,monthRangeExclusive,nextDateExclusive,nextMonth,previousMonth}from"@/lib/date-ranges";
-type Params={month?:string;from?:string;to?:string;project?:string;success?:string;error?:string};
-export default async function EmployeeDetails({params,searchParams}:{params:Promise<{id:string}>;searchParams:Promise<Params>}){const{id}=await params,p=await searchParams,s=await createClient(),currentMonth=getBusinessDate().slice(0,7),month=p.month||currentMonth,range=monthRangeExclusive(month),from=p.from||range.from,toExclusive=p.to?nextDateExclusive(p.to):range.toExclusive;const[{data:employee},{data:projects},{data:entries},{data:monthEntries}]=await Promise.all([s.from("employees").select("id,first_name,last_name,phone,status").eq("id",id).maybeSingle(),s.from("projects").select("id,name").order("name"),(()=>{let q=s.from("time_entries").select("*,projects(name)").eq("employee_id",id).gte("work_date",from).lt("work_date",toExclusive).order("work_date",{ascending:false});if(p.project)q=q.eq("project_id",p.project);return q;})(),s.from("time_entries").select("regular_hours,overtime_hours").eq("employee_id",id).gte("work_date",range.from).lt("work_date",range.toExclusive)]);if(!employee)notFound();const rows=entries||[],regular=rows.reduce((a,x)=>a+Number(x.regular_hours),0),overtime=rows.reduce((a,x)=>a+Number(x.overtime_hours),0),monthHours=(monthEntries||[]).reduce((a,x)=>a+Number(x.regular_hours)+Number(x.overtime_hours),0),days=new Set(rows.map(x=>x.work_date)).size,projectCount=new Set(rows.map(x=>x.project_id)).size,name=`${employee.first_name} ${employee.last_name}`,back=`/employees/${id}`;return <><PageHeader title={name} description="פרטי עובד והיסטוריית שעות" action={<Link href={`/employees?edit=${id}`} className="btn btn-secondary">עריכת עובד</Link>}/><section className="card p-5 mb-5 flex gap-10"><div><p className="text-xs text-slate-500">טלפון</p><b dir="ltr">{employee.phone||"—"}</b></div><div><p className="text-xs text-slate-500">סטטוס</p><StatusBadge status={employee.status}/></div></section><div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">{[["סה״כ שעות החודש",monthHours],["סה״כ שעות בתקופה",regular+overtime],["ימי עבודה בתקופה",days],["מספר פרויקטים בתקופה",projectCount]].map(([title,value])=><div className="card p-4" key={title}><p className="text-sm text-slate-500">{title}</p><b className="text-2xl">{value}</b></div>)}</div><section className="card p-4 mb-4"><div className="flex gap-2 mb-4"><Link className="btn btn-secondary" href={`/employees/${id}?month=${previousMonth(month)}`}>חודש קודם</Link><Link className="btn btn-secondary" href={`/employees/${id}?month=${currentMonth}`}>החודש הנוכחי</Link><Link className="btn btn-secondary" href={`/employees/${id}?month=${nextMonth(month)}`}>חודש הבא</Link></div><form className="grid sm:grid-cols-2 xl:grid-cols-5 gap-3"><input type="month" name="month" defaultValue={month} className="field"/><input type="date" name="from" defaultValue={p.from} className="field"/><input type="date" name="to" defaultValue={p.to} className="field"/><select name="project" defaultValue={p.project} className="field"><option value="">כל הפרויקטים</option>{projects?.map(x=><option value={x.id} key={x.id}>{x.name}</option>)}</select><button className="btn btn-primary">הצגת נתונים</button></form></section><section className="card table-wrap">{rows.length?<table><thead><tr><th>תאריך</th><th>פרויקט</th><th>רגילות</th><th>נוספות</th><th>סה״כ</th><th>מקור</th><th>הערות</th><th>פעולות</th></tr></thead><tbody>{rows.map((row:any)=>{const projectName=row.projects?.name||"";return <tr key={row.id}><td>{formatHebrewDate(row.work_date)}</td><td>{projectName}</td><td>{row.regular_hours}</td><td>{row.overtime_hours}</td><td>{Number(row.regular_hours)+Number(row.overtime_hours)}</td><td>{row.source==="telegram"?"Telegram":"Web"}</td><td>{row.notes||"—"}</td><td><TimeEntryActions entry={{id:row.id,work_date:row.work_date,regular_hours:Number(row.regular_hours),overtime_hours:Number(row.overtime_hours),employee_name:name,project_name:projectName}} returnTo={back}/></td></tr>})}</tbody></table>:<EmptyState text="אין דיווחים בתקופה שנבחרה"/>}</section></>}
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
+import { StatusBadge } from "@/components/status-badge";
+import { TimeEntryActions } from "@/components/time-entry-actions";
+import { createClient } from "@/lib/supabase/server";
+import {
+  formatHebrewDate,
+  getBusinessDate,
+  monthRangeExclusive,
+  nextDateExclusive,
+  nextMonth,
+  previousMonth,
+} from "@/lib/date-ranges";
+type Params = {
+  month?: string;
+  from?: string;
+  to?: string;
+  project?: string;
+  success?: string;
+  error?: string;
+};
+export default async function EmployeeDetails({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Params>;
+}) {
+  const { id } = await params,
+    p = await searchParams,
+    s = await createClient(),
+    currentMonth = getBusinessDate().slice(0, 7),
+    month = p.month || currentMonth,
+    range = monthRangeExclusive(month),
+    from = p.from || range.from,
+    toExclusive = p.to ? nextDateExclusive(p.to) : range.toExclusive;
+  const [
+    { data: employee },
+    { data: projects },
+    { data: entries },
+    { data: monthEntries },
+  ] = await Promise.all([
+    s
+      .from("employees")
+      .select("id,first_name,last_name,phone,status")
+      .eq("id", id)
+      .maybeSingle(),
+    s.from("projects").select("id,name").order("name"),
+    (() => {
+      let q = s
+        .from("time_entries")
+        .select("*,projects(name),telegram_users(display_name)")
+        .eq("employee_id", id)
+        .gte("work_date", from)
+        .lt("work_date", toExclusive)
+        .order("work_date", { ascending: false });
+      if (p.project) q = q.eq("project_id", p.project);
+      return q;
+    })(),
+    s
+      .from("time_entries")
+      .select("regular_hours,overtime_hours")
+      .eq("employee_id", id)
+      .gte("work_date", range.from)
+      .lt("work_date", range.toExclusive),
+  ]);
+  if (!employee) notFound();
+  const rows = entries || [],
+    regular = rows.reduce((a, x) => a + Number(x.regular_hours), 0),
+    overtime = rows.reduce((a, x) => a + Number(x.overtime_hours), 0),
+    monthHours = (monthEntries || []).reduce(
+      (a, x) => a + Number(x.regular_hours) + Number(x.overtime_hours),
+      0,
+    ),
+    days = new Set(rows.map((x) => x.work_date)).size,
+    projectCount = new Set(rows.map((x) => x.project_id)).size,
+    name = `${employee.first_name} ${employee.last_name}`,
+    back = `/employees/${id}`;
+  return (
+    <>
+      <PageHeader
+        title={name}
+        description="פרטי עובד והיסטוריית שעות"
+        action={
+          <Link href={`/employees?edit=${id}`} className="btn btn-secondary">
+            עריכת עובד
+          </Link>
+        }
+      />
+      <section className="card p-5 mb-5 flex gap-10">
+        <div>
+          <p className="text-xs text-slate-500">טלפון</p>
+          <b dir="ltr">{employee.phone || "—"}</b>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500">סטטוס</p>
+          <StatusBadge status={employee.status} />
+        </div>
+      </section>
+      <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
+        {[
+          ["סה״כ שעות החודש", monthHours],
+          ["סה״כ שעות בתקופה", regular + overtime],
+          ["ימי עבודה בתקופה", days],
+          ["מספר פרויקטים בתקופה", projectCount],
+        ].map(([title, value]) => (
+          <div className="card p-4" key={title}>
+            <p className="text-sm text-slate-500">{title}</p>
+            <b className="text-2xl">{value}</b>
+          </div>
+        ))}
+      </div>
+      <section className="card p-4 mb-4">
+        <div className="flex gap-2 mb-4">
+          <Link
+            className="btn btn-secondary"
+            href={`/employees/${id}?month=${previousMonth(month)}`}
+          >
+            חודש קודם
+          </Link>
+          <Link
+            className="btn btn-secondary"
+            href={`/employees/${id}?month=${currentMonth}`}
+          >
+            החודש הנוכחי
+          </Link>
+          <Link
+            className="btn btn-secondary"
+            href={`/employees/${id}?month=${nextMonth(month)}`}
+          >
+            חודש הבא
+          </Link>
+        </div>
+        <form className="grid sm:grid-cols-2 xl:grid-cols-5 gap-3">
+          <input
+            type="month"
+            name="month"
+            defaultValue={month}
+            className="field"
+          />
+          <input
+            type="date"
+            name="from"
+            defaultValue={p.from}
+            className="field"
+          />
+          <input type="date" name="to" defaultValue={p.to} className="field" />
+          <select name="project" defaultValue={p.project} className="field">
+            <option value="">כל הפרויקטים</option>
+            {projects?.map((x) => (
+              <option value={x.id} key={x.id}>
+                {x.name}
+              </option>
+            ))}
+          </select>
+          <button className="btn btn-primary">הצגת נתונים</button>
+        </form>
+      </section>
+      <section className="card table-wrap">
+        {rows.length ? (
+          <table>
+            <thead>
+              <tr>
+                <th>תאריך</th>
+                <th>פרויקט</th>
+                <th>רגילות</th>
+                <th>נוספות</th>
+                <th>סה״כ</th>
+                <th>מקור</th>
+                <th>הערות</th>
+                <th>פעולות</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row: any) => {
+                const projectName = row.projects?.name || "";
+                return (
+                  <tr key={row.id}>
+                    <td>{formatHebrewDate(row.work_date)}</td>
+                    <td>{projectName}</td>
+                    <td>{row.regular_hours}</td>
+                    <td>{row.overtime_hours}</td>
+                    <td>
+                      {Number(row.regular_hours) + Number(row.overtime_hours)}
+                    </td>
+                    <td>{row.source === "telegram" ? <><span>Telegram</span><span className="block text-xs text-slate-500">{row.telegram_users?.display_name?`דווח ע״י: ${row.telegram_users.display_name}`:"דווח דרך Telegram"}</span></> : "Web"}</td>
+                    <td>{row.notes || "—"}</td>
+                    <td>
+                      <TimeEntryActions
+                        entry={{
+                          id: row.id,
+                          work_date: row.work_date,
+                          regular_hours: Number(row.regular_hours),
+                          overtime_hours: Number(row.overtime_hours),
+                          employee_name: name,
+                          project_name: projectName,
+                        }}
+                        returnTo={back}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : (
+          <EmptyState text="אין דיווחים בתקופה שנבחרה" />
+        )}
+      </section>
+    </>
+  );
+}

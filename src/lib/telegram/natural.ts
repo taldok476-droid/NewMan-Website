@@ -2,39 +2,802 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import { getIntentProvider } from "./ai/openai";
 import { getBusinessDate, resolveDateReference } from "./dates";
-import { createEntityDraft, createTelegramDraft, findExistingEntries, getConversationContext, getTodayEntries, queryReport, saveConversationContext } from "./data";
+import {
+  clearConversationContext,
+  createEntityDraft,
+  createTelegramDraft,
+  findExistingEntries,
+  getConversationContext,
+  getTodayEntries,
+  queryReport,
+  saveConversationContext,
+} from "./data";
 import { resolveEntity, type NamedEntity } from "./resolution";
-import { applyDefaultWorkdayHours, parseAttendanceList, parseEntityReportQuery, parseMultilineTimeEntries, parseSimpleReportQuery, parseSimpleTimeEntry, recognizeReadOnlyIntent, type ReadOnlyIntent } from "./fast-path";
-import { getCachedActiveEmployees, getCachedActiveProjects } from "./reference-cache";
+import {
+  applyDefaultWorkdayHours,
+  parseAttendanceList,
+  parseEntityReportQuery,
+  parseMultilineTimeEntries,
+  parseSimpleReportQuery,
+  parseSimpleTimeEntry,
+  recognizeReadOnlyIntent,
+  type ReadOnlyIntent,
+} from "./fast-path";
+import {
+  getCachedActiveEmployees,
+  getCachedActiveProjects,
+} from "./reference-cache";
 import type { TelegramPerformance } from "./performance";
 import { commandList, formatNameList, formatTodayEntries } from "./format";
 import { parsedIntentSchema, type ParsedIntent } from "./ai/schema";
-import { buildClarificationState, selectClarification, type ClarificationSelection } from "./clarification";
-import { confirmationButtonText, duplicateProposalKeys, formatCombinedDraft, inheritCreateGroupDates, missingReferenceQuestion, type ResolvedDraftEntry } from "./batch";
-import { buildReportResult, formatEmptyReport, formatExcelTelegramSummary, formatReportResult, reportPeriodFromContext, resolveReportPeriod, type ReportPeriod } from "./reports";
+import {
+  buildClarificationState,
+  selectClarification,
+  type ClarificationSelection,
+} from "./clarification";
+import {
+  confirmationButtonText,
+  duplicateProposalKeys,
+  formatCombinedDraft,
+  inheritCreateGroupDates,
+  missingReferenceQuestion,
+  type ResolvedDraftEntry,
+} from "./batch";
+import {
+  buildReportResult,
+  formatEmptyReport,
+  formatExcelTelegramSummary,
+  formatReportResult,
+  reportPeriodFromContext,
+  resolveReportPeriod,
+  type ReportPeriod,
+} from "./reports";
 import { generateExcelReport } from "./excel";
-import { assessCreationDuplicate, creationFromFollowUp, formatCreationDraft, parseEntityCreationIntent, type EntityCreationKind } from "./entity-management";
+import {
+  assessCreationDuplicate,
+  creationFromFollowUp,
+  formatCreationDraft,
+  isCreationCancellation,
+  parseEntityCreationIntent,
+  type EntityCreationKind,
+} from "./entity-management";
+import {
+  hasCapability,
+  permissionDeniedMessage,
+  requiredCapability,
+  type TelegramActor,
+} from "./auth";
 
-export type NaturalReply={text:string;inlineKeyboard?:Array<Array<{text:string;callback_data:string}>>;document?:{data:Buffer;filename:string}};
-const entityError=(kind:"employee"|"project",ref:string,res:ReturnType<typeof resolveEntity>)=>res.kind==="ambiguous"?`לאיזה ${kind==="employee"?"עובד":"פרויקט"} התכוונת?\n${res.options.map(x=>`• ${x.name}`).join("\n")}`:kind==="employee"?`לא נמצא עובד בשם "${ref}". יש לתקן את השם או להוסיף אותו דרך מערכת ה-Web.`:`לא נמצא פרויקט התואם ל-"${ref}".`;
-type ForcedSelection=ClarificationSelection;
-type ResumeState={parsed:ParsedIntent;forced:ForcedSelection[]};
-type MissingReferenceState={kind:"missing_reference";telegramUserId:number;parsed:ParsedIntent;forced:ForcedSelection[];field:"project"|"employee";groupIndex:number;entryIndex?:number};
-type MissingEntityNameState={kind:"entity_creation_missing_name";telegramUserId:number;entityKind:EntityCreationKind};
-function restoreMissingReference(state:MissingReferenceState,reference:string):ResumeState|null{const parsed=parsedIntentSchema.safeParse(state.parsed);if(!parsed.success||!reference.trim())return null;const groups=parsed.data.create_groups.map(group=>({...group,entries:group.entries.map(entry=>({...entry}))}));const group=groups[state.groupIndex];if(!group)return null;if(state.field==="project")group.project_reference=reference.trim();else{const entry=group.entries[state.entryIndex??-1];if(!entry)return null;entry.employee_reference=reference.trim();}return{parsed:{...parsed.data,create_groups:groups},forced:state.forced};}
-async function missingReferenceReply(chatId:number,userId:number,parsed:ParsedIntent,forced:ForcedSelection[],field:"project"|"employee",groupIndex:number,entryIndex?:number):Promise<NaturalReply>{await saveConversationContext(chatId,{kind:"missing_reference",telegramUserId:userId,parsed,forced,field,groupIndex,entryIndex} as MissingReferenceState as unknown as Record<string,unknown>);const employee=parsed.create_groups[groupIndex]?.entries[entryIndex??0]?.employee_reference;return{text:missingReferenceQuestion(field,employee)};}
-async function clarificationReply(chatId:number,userId:number,parsed:ParsedIntent,forced:ForcedSelection[],kind:"employee"|"project",reference:string,options:NamedEntity[]):Promise<NaturalReply>{const clarificationId=randomUUID();await saveConversationContext(chatId,buildClarificationState({clarificationId,telegramUserId:userId,parsed,forced,kind,reference,options}));return{text:kind==="employee"?`לאיזה ${reference} התכוונת?`:`לאיזה פרויקט בשם "${reference}" התכוונת?`,inlineKeyboard:options.slice(0,6).map((option,index)=>[{text:option.name,callback_data:`clarify:${clarificationId}:${index}`}])};}
-function resolveWithSelections(kind:"employee"|"project",reference:string,entities:NamedEntity[],forced:ForcedSelection[]){const selected=forced.find(item=>item.kind===kind&&item.reference===reference);return selected?{kind:"resolved" as const,entity:selected.entity,confidence:1}:resolveEntity(reference,entities);}
-async function readOnlyReply(intent:ReadOnlyIntent,projectsPromise:ReturnType<typeof getCachedActiveProjects>,employeesPromise:ReturnType<typeof getCachedActiveEmployees>,timing?:TelegramPerformance):Promise<NaturalReply>{if(intent==="PROJECTS_LIST")return{text:formatNameList("פרויקטים פעילים:",(await projectsPromise).map(x=>x.name),"לא נמצאו פרויקטים פעילים.")};if(intent==="EMPLOYEES_LIST")return{text:formatNameList("עובדים פעילים:",(await employeesPromise).map(x=>x.name),"לא נמצאו עובדים פעילים.")};const entries=timing?await timing.measure("today_status",getTodayEntries):await getTodayEntries();return{text:formatTodayEntries(entries)};}
+export type NaturalReply = {
+  text: string;
+  inlineKeyboard?: Array<Array<{ text: string; callback_data: string }>>;
+  document?: { data: Buffer; filename: string };
+};
+const entityError = (
+  kind: "employee" | "project",
+  ref: string,
+  res: ReturnType<typeof resolveEntity>,
+) =>
+  res.kind === "ambiguous"
+    ? `לאיזה ${kind === "employee" ? "עובד" : "פרויקט"} התכוונת?\n${res.options.map((x) => `• ${x.name}`).join("\n")}`
+    : kind === "employee"
+      ? `לא נמצא עובד בשם "${ref}". יש לתקן את השם או להוסיף אותו דרך מערכת ה-Web.`
+      : `לא נמצא פרויקט התואם ל-"${ref}".`;
+type ForcedSelection = ClarificationSelection;
+type ResumeState = { parsed: ParsedIntent; forced: ForcedSelection[] };
+type MissingReferenceState = {
+  kind: "missing_reference";
+  telegramUserId: number;
+  parsed: ParsedIntent;
+  forced: ForcedSelection[];
+  field: "project" | "employee";
+  groupIndex: number;
+  entryIndex?: number;
+};
+type MissingEntityNameState = {
+  kind: "entity_creation_missing_name";
+  telegramUserId: number;
+  entityKind: EntityCreationKind;
+};
+function restoreMissingReference(
+  state: MissingReferenceState,
+  reference: string,
+): ResumeState | null {
+  const parsed = parsedIntentSchema.safeParse(state.parsed);
+  if (!parsed.success || !reference.trim()) return null;
+  const groups = parsed.data.create_groups.map((group) => ({
+    ...group,
+    entries: group.entries.map((entry) => ({ ...entry })),
+  }));
+  const group = groups[state.groupIndex];
+  if (!group) return null;
+  if (state.field === "project") group.project_reference = reference.trim();
+  else {
+    const entry = group.entries[state.entryIndex ?? -1];
+    if (!entry) return null;
+    entry.employee_reference = reference.trim();
+  }
+  return {
+    parsed: { ...parsed.data, create_groups: groups },
+    forced: state.forced,
+  };
+}
+async function missingReferenceReply(
+  chatId: number,
+  userId: number,
+  parsed: ParsedIntent,
+  forced: ForcedSelection[],
+  field: "project" | "employee",
+  groupIndex: number,
+  entryIndex?: number,
+): Promise<NaturalReply> {
+  await saveConversationContext(chatId, {
+    kind: "missing_reference",
+    telegramUserId: userId,
+    parsed,
+    forced,
+    field,
+    groupIndex,
+    entryIndex,
+  } as MissingReferenceState as unknown as Record<string, unknown>);
+  const employee =
+    parsed.create_groups[groupIndex]?.entries[entryIndex ?? 0]
+      ?.employee_reference;
+  return { text: missingReferenceQuestion(field, employee) };
+}
+async function clarificationReply(
+  chatId: number,
+  userId: number,
+  parsed: ParsedIntent,
+  forced: ForcedSelection[],
+  kind: "employee" | "project",
+  reference: string,
+  options: NamedEntity[],
+): Promise<NaturalReply> {
+  const clarificationId = randomUUID();
+  await saveConversationContext(
+    chatId,
+    buildClarificationState({
+      clarificationId,
+      telegramUserId: userId,
+      parsed,
+      forced,
+      kind,
+      reference,
+      options,
+    }),
+  );
+  return {
+    text:
+      kind === "employee"
+        ? `לאיזה ${reference} התכוונת?`
+        : `לאיזה פרויקט בשם "${reference}" התכוונת?`,
+    inlineKeyboard: options
+      .slice(0, 6)
+      .map((option, index) => [
+        {
+          text: option.name,
+          callback_data: `clarify:${clarificationId}:${index}`,
+        },
+      ]),
+  };
+}
+function resolveWithSelections(
+  kind: "employee" | "project",
+  reference: string,
+  entities: NamedEntity[],
+  forced: ForcedSelection[],
+) {
+  const selected = forced.find(
+    (item) => item.kind === kind && item.reference === reference,
+  );
+  return selected
+    ? { kind: "resolved" as const, entity: selected.entity, confidence: 1 }
+    : resolveEntity(reference, entities);
+}
+async function readOnlyReply(
+  intent: ReadOnlyIntent,
+  projectsPromise: ReturnType<typeof getCachedActiveProjects>,
+  employeesPromise: ReturnType<typeof getCachedActiveEmployees>,
+  timing?: TelegramPerformance,
+): Promise<NaturalReply> {
+  if (intent === "PROJECTS_LIST")
+    return {
+      text: formatNameList(
+        "פרויקטים פעילים:",
+        (await projectsPromise).map((x) => x.name),
+        "לא נמצאו פרויקטים פעילים.",
+      ),
+    };
+  if (intent === "EMPLOYEES_LIST")
+    return {
+      text: formatNameList(
+        "עובדים פעילים:",
+        (await employeesPromise).map((x) => x.name),
+        "לא נמצאו עובדים פעילים.",
+      ),
+    };
+  const entries = timing
+    ? await timing.measure("today_status", getTodayEntries)
+    : await getTodayEntries();
+  return { text: formatTodayEntries(entries) };
+}
 
-function reportPeriod(report:{date_reference:string|null;date_from_reference:string|null;date_to_reference:string|null},businessDate:string,previous:Record<string,unknown>|null):ReportPeriod|null{if(report.date_from_reference&&report.date_to_reference)return resolveReportPeriod(`מ-${report.date_from_reference} עד ${report.date_to_reference}`,businessDate);if(report.date_reference)return resolveReportPeriod(report.date_reference,businessDate);return reportPeriodFromContext(previous)??resolveReportPeriod("החודש",businessDate);}
+function reportPeriod(
+  report: {
+    date_reference: string | null;
+    date_from_reference: string | null;
+    date_to_reference: string | null;
+  },
+  businessDate: string,
+  previous: Record<string, unknown> | null,
+): ReportPeriod | null {
+  if (report.date_from_reference && report.date_to_reference)
+    return resolveReportPeriod(
+      `מ-${report.date_from_reference} עד ${report.date_to_reference}`,
+      businessDate,
+    );
+  if (report.date_reference)
+    return resolveReportPeriod(report.date_reference, businessDate);
+  return (
+    reportPeriodFromContext(previous) ??
+    resolveReportPeriod("החודש", businessDate)
+  );
+}
 
-export async function handleNaturalMessage(chatId:number,userId:number,message:string,timing?:TelegramPerformance,resume?:ResumeState):Promise<NaturalReply>{const businessDate=getBusinessDate();const fastPathStarted=performance.now();let usedAI=false;const entityStarted=performance.now(),projectsPromise=timing?.measure("active_projects_fetch",getCachedActiveProjects)??getCachedActiveProjects(),employeesPromise=timing?.measure("active_employees_fetch",getCachedActiveEmployees)??getCachedActiveEmployees(),readOnly=resume?null:recognizeReadOnlyIntent(message);if(readOnly){timing?.duration("intent_detection",fastPathStarted);timing?.set("fast_path",true);timing?.set("intent_path","deterministic");timing?.set("read_only_intent",readOnly);return readOnlyReply(readOnly,projectsPromise,employeesPromise,timing);}let previous:Record<string,unknown>|null=null,parsed=resume?.parsed??parseEntityCreationIntent(message)??parseAttendanceList(message)??parseMultilineTimeEntries(message)??parseSimpleTimeEntry(message)??parseSimpleReportQuery(message);let forced=resume?.forced??[];if(!parsed){previous=timing?await timing.measure("context",()=>getConversationContext(chatId)):await getConversationContext(chatId);const entityFollowUp=previous?.kind==="entity_creation_missing_name"&&Number(previous.telegramUserId)===userId?creationFromFollowUp((previous as unknown as MissingEntityNameState).entityKind,message):null;const missing=previous?.kind==="missing_reference"&&Number(previous.telegramUserId)===userId?restoreMissingReference(previous as unknown as MissingReferenceState,message):null;if(entityFollowUp)parsed=entityFollowUp;else if(missing){parsed=missing.parsed;forced=missing.forced;}else{const[fastProjects,fastEmployees]=await Promise.all([projectsPromise,employeesPromise]);parsed=parseEntityReportQuery(message,businessDate,fastEmployees,fastProjects);if(!parsed){const previousFilters=previous?.kind!=="clarification"&&previous?.kind!=="missing_reference"&&previous?.kind!=="entity_creation_missing_name"&&previous?{employeeReference:previous.employeeReference??null,projectReference:previous.projectReference??null,fromInclusive:previous.fromInclusive??null,toExclusive:previous.toExclusive??null,periodLabel:previous.periodLabel??null,reportType:previous.reportType??null}:null;try{usedAI=true;parsed=await getIntentProvider().parse(message,{businessDate,previousFilters},timing);}catch{return{text:"לא הצלחתי להבין את ההודעה כרגע. אפשר לנסות שוב או להשתמש ב-/help."};}}}}timing?.duration("intent_detection",fastPathStarted);timing?.set("fast_path",Boolean(parsed)&&!usedAI&&!resume);timing?.set("intent_path",usedAI?"ai_fallback":"deterministic");parsed=applyDefaultWorkdayHours(inheritCreateGroupDates(parsed));const[projects,employees]=await Promise.all([projectsPromise,employeesPromise]);timing?.duration("entity_fetch",entityStarted);if(parsed.intent==="PROJECTS_LIST")return readOnlyReply("PROJECTS_LIST",projectsPromise,employeesPromise,timing);if(parsed.intent==="EMPLOYEES_LIST")return readOnlyReply("EMPLOYEES_LIST",projectsPromise,employeesPromise,timing);if(parsed.intent==="TODAY_STATUS")return readOnlyReply("TODAY_STATUS",projectsPromise,employeesPromise,timing);if(parsed.intent==="HELP")return{text:`אפשר לדווח שעות, ליצור עובד או פרויקט, ולבקש דוחות בעברית טבעית.\n\n${commandList}`};const resolutionStarted=performance.now();
-  if(parsed.intent==="EMPLOYEE_INFO"||parsed.intent==="PROJECT_INFO"){const kind=parsed.intent==="EMPLOYEE_INFO"?"employee":"project",reference=kind==="employee"?parsed.report?.employee_reference:parsed.report?.project_reference;if(!reference)return{text:kind==="employee"?"על איזה עובד תרצה מידע?":"על איזה פרויקט תרצה מידע?"};const resolution=resolveWithSelections(kind,reference,kind==="employee"?employees:projects,forced);if(resolution.kind==="ambiguous")return clarificationReply(chatId,userId,parsed,forced,kind,reference,resolution.options);if(resolution.kind==="not_found")return{text:entityError(kind,reference,resolution)};return{text:kind==="employee"?`👤 עובד: ${resolution.entity.name}\nסטטוס: פעיל`:`📍 פרויקט: ${resolution.entity.name}\nסטטוס: פעיל`};}
-  if(parsed.intent==="CREATE_EMPLOYEE"||parsed.intent==="CREATE_PROJECT"){const kind:EntityCreationKind=parsed.intent==="CREATE_EMPLOYEE"?"employee":"project",name=parsed.entity_creation?.name?.trim();if(!name){await saveConversationContext(chatId,{kind:"entity_creation_missing_name",telegramUserId:userId,entityKind:kind});return{text:kind==="employee"?"מה שם העובד?":"מה שם הפרויקט?"};}if(name.length>160)return{text:"השם ארוך מדי. נא לבחור שם קצר יותר."};const entities=kind==="employee"?employees:projects,duplicate=assessCreationDuplicate(name,entities);if(duplicate.kind==="exact")return{text:kind==="employee"?`קיים כבר עובד בשם ${duplicate.entity.name}.`:`קיים כבר פרויקט בשם ${duplicate.entity.name}.`};const phone=kind==="employee"?parsed.entity_creation?.phone??null:null;const draft=await createEntityDraft({chatId,telegramUserId:userId,kind,name,phone,messageHash:createHash("sha256").update(message||JSON.stringify(parsed)).digest("hex")});return{text:formatCreationDraft(kind,name,phone,duplicate.kind==="similar"?duplicate.entity.name:undefined),inlineKeyboard:[[{text:kind==="employee"?"יצירת עובד":"יצירת פרויקט",callback_data:`confirm:${draft.id}`},{text:"ביטול",callback_data:`cancel:${draft.id}`}]]};}
-  if(parsed.intent==="UNKNOWN")return{text:"מה תרצה לעשות — לדווח שעות, להוסיף עובד או פרויקט, או לראות דוח?"};
-  if(parsed.intent==="CREATE_TIME_ENTRIES"){if(!parsed.create_groups.length)return{text:"לא נמצאו קבוצות דיווח תקינות."};const resolved:ResolvedDraftEntry[]=[];for(const [groupIndex,group] of parsed.create_groups.entries()){if(!group.date_reference.trim())return{text:"לא הצלחתי לזהות את תאריך העבודה. באיזה תאריך לדווח?"};const date=resolveDateReference(group.date_reference,businessDate);if(!date)return{text:`התאריך "${group.date_reference}" אינו תקין. נא לכתוב תאריך כמו 30/09/2026.`};if(!group.project_reference.trim())return missingReferenceReply(chatId,userId,parsed,forced,"project",groupIndex);const project=resolveWithSelections("project",group.project_reference,projects,forced);if(project.kind==="ambiguous")return clarificationReply(chatId,userId,parsed,forced,"project",group.project_reference,project.options);if(project.kind==="not_found")return{text:entityError("project",group.project_reference,project)};for(const [entryIndex,entry] of group.entries.entries()){if(!entry.employee_reference.trim())return missingReferenceReply(chatId,userId,parsed,forced,"employee",groupIndex,entryIndex);const employee=resolveWithSelections("employee",entry.employee_reference,employees,forced);if(employee.kind==="ambiguous")return clarificationReply(chatId,userId,parsed,forced,"employee",entry.employee_reference,employee.options);if(employee.kind==="not_found")return{text:entityError("employee",entry.employee_reference,employee)};const regular=Number(entry.regular_hours),overtime=Number(entry.overtime_hours??0);if(!Number.isFinite(regular)||!Number.isFinite(overtime)||regular<0||overtime<0||regular+overtime<=0||regular+overtime>24)return{text:`מספר השעות עבור ${employee.entity.name} אינו תקין.`};resolved.push({work_date:date,employee_id:employee.entity.id,employee_name:employee.entity.name,project_id:project.entity.id,project_name:project.entity.name,regular_hours:regular,overtime_hours:overtime,notes:entry.notes,operation:"insert",existing_regular_hours:null,existing_overtime_hours:null});}}
-    if(resolved.length>30)return{text:"ניתן לאשר עד 30 דיווחים בהודעה אחת. נא לפצל את הדיווח."};if(duplicateProposalKeys(resolved).length)return{text:"אותו עובד מופיע יותר מפעם אחת באותו פרויקט ובאותו תאריך. נא לאחד את הדיווחים."};timing?.duration("resolution",resolutionStarted);const existing=timing?await timing.measure("duplicate",()=>findExistingEntries(resolved)):await findExistingEntries(resolved);resolved.forEach(e=>{const current=existing.get(`${e.employee_id}:${e.project_id}:${e.work_date}`);if(current){e.operation="update";e.existing_regular_hours=current.regular_hours;e.existing_overtime_hours=current.overtime_hours;}});const draftText=formatCombinedDraft(resolved);if(draftText.length>4000)return{text:"הטיוטה ארוכה מדי להצגה בטוחה בטלגרם. נא לפצל את הדיווח לשתי הודעות."};const originalHash=createHash("sha256").update(message||JSON.stringify(parsed)).digest("hex");const draft=timing?await timing.measure("draft",()=>createTelegramDraft({chatId,telegramUserId:userId,entries:resolved,messageHash:originalHash})):await createTelegramDraft({chatId,telegramUserId:userId,entries:resolved,messageHash:originalHash});return{text:draftText,inlineKeyboard:[[{text:confirmationButtonText(resolved),callback_data:`confirm:${draft.id}`},{text:"❌ ביטול",callback_data:`cancel:${draft.id}`}]]};}
-  const report=parsed.report;if(!report)return{text:"לא הצלחתי להבין את הדוח המבוקש."};const projectRef=report.project_reference||String(previous?.projectReference||"")||null,employeeRef=report.employee_reference||String(previous?.employeeReference||"")||null;let project:NamedEntity|undefined,employee:NamedEntity|undefined;if(projectRef){const r=resolveWithSelections("project",projectRef,projects,forced);if(r.kind==="ambiguous")return clarificationReply(chatId,userId,parsed,forced,"project",projectRef,r.options);if(r.kind==="not_found")return{text:entityError("project",projectRef,r)};project=r.entity;}if(employeeRef){const r=resolveWithSelections("employee",employeeRef,employees,forced);if(r.kind==="ambiguous")return clarificationReply(chatId,userId,parsed,forced,"employee",employeeRef,r.options);if(r.kind==="not_found")return{text:entityError("employee",employeeRef,r)};employee=r.entity;}timing?.duration("entity_resolution",resolutionStarted);const period=reportPeriod(report,businessDate,previous);if(!period)return{text:"טווח התאריכים אינו תקין. אפשר לכתוב חודש, יום או טווח כמו מ-1.9.26 עד 30.9.26."};const reportType=employee&&project?"EMPLOYEE_PROJECT":employee?"EMPLOYEE":project?"PROJECT":report.report_type;const rows=timing?await timing.measure("report_query",()=>queryReport({employeeId:employee?.id,projectId:project?.id,fromInclusive:period.fromInclusive,toExclusive:period.toExclusive})):await queryReport({employeeId:employee?.id,projectId:project?.id,fromInclusive:period.fromInclusive,toExclusive:period.toExclusive});await saveConversationContext(chatId,{employeeReference:employee?.name||null,projectReference:project?.name||null,fromInclusive:period.fromInclusive,toExclusive:period.toExclusive,periodLabel:period.label,periodKind:period.kind,reportType});if(!rows.length)return{text:formatEmptyReport(period,employee?.name,project?.name)};const result=timing?await timing.measure("report_aggregation",async()=>buildReportResult(rows,period)):buildReportResult(rows,period);const scope={type:reportType,employeeName:employee?.name,projectName:project?.name};if(report.output_format==="EXCEL"){try{const document=timing?await timing.measure("excel_generation",()=>generateExcelReport(result,scope)):await generateExcelReport(result,scope);return{text:formatExcelTelegramSummary(result),document};}catch(error){if(error instanceof Error&&error.message==="EXCEL_REPORT_TOO_LARGE")return{text:"הדוח גדול מדי להפקת Excel מיידית. נא לבחור תקופה קצרה יותר או להוסיף סינון לפי עובד או פרויקט."};throw error;}}return{text:formatReportResult(result,scope)};}
+export async function handleNaturalMessage(
+  chatId: number,
+  userId: number,
+  message: string,
+  actor: TelegramActor,
+  timing?: TelegramPerformance,
+  resume?: ResumeState,
+): Promise<NaturalReply> {
+  const businessDate = getBusinessDate();
+  const fastPathStarted = performance.now();
+  let usedAI = false;
+  const entityStarted = performance.now(),
+    projectsPromise =
+      timing?.measure("active_projects_fetch", getCachedActiveProjects) ??
+      getCachedActiveProjects(),
+    employeesPromise =
+      timing?.measure("active_employees_fetch", getCachedActiveEmployees) ??
+      getCachedActiveEmployees(),
+    readOnly = resume ? null : recognizeReadOnlyIntent(message);
+  if (readOnly) {
+    const capability = requiredCapability(readOnly);
+    if (capability && !hasCapability(actor, capability))
+      return { text: permissionDeniedMessage(capability) };
+    timing?.duration("intent_detection", fastPathStarted);
+    timing?.set("fast_path", true);
+    timing?.set("intent_path", "deterministic");
+    timing?.set("read_only_intent", readOnly);
+    return readOnlyReply(readOnly, projectsPromise, employeesPromise, timing);
+  }
+  let previous: Record<string, unknown> | null = null,
+    parsed =
+      resume?.parsed ??
+      parseEntityCreationIntent(message) ??
+      parseAttendanceList(message) ??
+      parseMultilineTimeEntries(message) ??
+      parseSimpleTimeEntry(message) ??
+      parseSimpleReportQuery(message);
+  let forced = resume?.forced ?? [];
+  if (!parsed) {
+    previous = timing
+      ? await timing.measure("context", () => getConversationContext(chatId))
+      : await getConversationContext(chatId);
+    const entityNamePending =
+      previous?.kind === "entity_creation_missing_name" &&
+      Number(previous.telegramUserId) === userId;
+    if (entityNamePending && isCreationCancellation(message)) {
+      await clearConversationContext(chatId);
+      return { text: "בוטל. לא בוצע שינוי." };
+    }
+    const entityFollowUp = entityNamePending
+      ? creationFromFollowUp(
+          (previous as unknown as MissingEntityNameState).entityKind,
+          message,
+        )
+      : null;
+    if (entityFollowUp) await clearConversationContext(chatId);
+    const missing =
+      previous?.kind === "missing_reference" &&
+      Number(previous.telegramUserId) === userId
+        ? restoreMissingReference(
+            previous as unknown as MissingReferenceState,
+            message,
+          )
+        : null;
+    if (entityFollowUp) parsed = entityFollowUp;
+    else if (missing) {
+      parsed = missing.parsed;
+      forced = missing.forced;
+    } else {
+      const [fastProjects, fastEmployees] = await Promise.all([
+        projectsPromise,
+        employeesPromise,
+      ]);
+      parsed = parseEntityReportQuery(
+        message,
+        businessDate,
+        fastEmployees,
+        fastProjects,
+      );
+      if (!parsed) {
+        const previousFilters =
+          previous?.kind !== "clarification" &&
+          previous?.kind !== "missing_reference" &&
+          previous?.kind !== "entity_creation_missing_name" &&
+          previous
+            ? {
+                employeeReference: previous.employeeReference ?? null,
+                projectReference: previous.projectReference ?? null,
+                fromInclusive: previous.fromInclusive ?? null,
+                toExclusive: previous.toExclusive ?? null,
+                periodLabel: previous.periodLabel ?? null,
+                reportType: previous.reportType ?? null,
+              }
+            : null;
+        try {
+          usedAI = true;
+          parsed = await getIntentProvider().parse(
+            message,
+            { businessDate, previousFilters },
+            timing,
+          );
+        } catch {
+          return {
+            text: "לא הצלחתי להבין את ההודעה כרגע. אפשר לנסות שוב או להשתמש ב-/help.",
+          };
+        }
+      }
+    }
+  }
+  timing?.duration("intent_detection", fastPathStarted);
+  timing?.set("fast_path", Boolean(parsed) && !usedAI && !resume);
+  timing?.set("intent_path", usedAI ? "ai_fallback" : "deterministic");
+  parsed = applyDefaultWorkdayHours(inheritCreateGroupDates(parsed));
+  const capability = requiredCapability(
+    parsed.intent,
+    parsed.report?.output_format,
+  );
+  if (capability && !hasCapability(actor, capability))
+    return { text: permissionDeniedMessage(capability) };
+  const [projects, employees] = await Promise.all([
+    projectsPromise,
+    employeesPromise,
+  ]);
+  timing?.duration("entity_fetch", entityStarted);
+  if (parsed.intent === "PROJECTS_LIST")
+    return readOnlyReply(
+      "PROJECTS_LIST",
+      projectsPromise,
+      employeesPromise,
+      timing,
+    );
+  if (parsed.intent === "EMPLOYEES_LIST")
+    return readOnlyReply(
+      "EMPLOYEES_LIST",
+      projectsPromise,
+      employeesPromise,
+      timing,
+    );
+  if (parsed.intent === "TODAY_STATUS")
+    return readOnlyReply(
+      "TODAY_STATUS",
+      projectsPromise,
+      employeesPromise,
+      timing,
+    );
+  if (parsed.intent === "HELP")
+    return {
+      text: `אפשר לדווח שעות, ליצור עובד או פרויקט, ולבקש דוחות בעברית טבעית.\n\n${commandList}`,
+    };
+  const resolutionStarted = performance.now();
+  if (parsed.intent === "EMPLOYEE_INFO" || parsed.intent === "PROJECT_INFO") {
+    const kind = parsed.intent === "EMPLOYEE_INFO" ? "employee" : "project",
+      reference =
+        kind === "employee"
+          ? parsed.report?.employee_reference
+          : parsed.report?.project_reference;
+    if (!reference)
+      return {
+        text:
+          kind === "employee"
+            ? "על איזה עובד תרצה מידע?"
+            : "על איזה פרויקט תרצה מידע?",
+      };
+    const resolution = resolveWithSelections(
+      kind,
+      reference,
+      kind === "employee" ? employees : projects,
+      forced,
+    );
+    if (resolution.kind === "ambiguous")
+      return clarificationReply(
+        chatId,
+        userId,
+        parsed,
+        forced,
+        kind,
+        reference,
+        resolution.options,
+      );
+    if (resolution.kind === "not_found")
+      return { text: entityError(kind, reference, resolution) };
+    return {
+      text:
+        kind === "employee"
+          ? `👤 עובד: ${resolution.entity.name}\nסטטוס: פעיל`
+          : `📍 פרויקט: ${resolution.entity.name}\nסטטוס: פעיל`,
+    };
+  }
+  if (
+    parsed.intent === "CREATE_EMPLOYEE" ||
+    parsed.intent === "CREATE_PROJECT"
+  ) {
+    const kind: EntityCreationKind =
+        parsed.intent === "CREATE_EMPLOYEE" ? "employee" : "project",
+      name = parsed.entity_creation?.name?.trim();
+    if (!name) {
+      await saveConversationContext(chatId, {
+        kind: "entity_creation_missing_name",
+        telegramUserId: userId,
+        entityKind: kind,
+      });
+      return {
+        text: kind === "employee" ? "מה שם העובד?" : "איך תרצה לקרוא לפרויקט?",
+      };
+    }
+    if (name.length > 160)
+      return { text: "השם ארוך מדי. נא לבחור שם קצר יותר." };
+    const entities = kind === "employee" ? employees : projects,
+      duplicate = assessCreationDuplicate(name, entities);
+    if (duplicate.kind === "exact")
+      return {
+        text:
+          kind === "employee"
+            ? `קיים כבר עובד בשם ${duplicate.entity.name}.`
+            : `קיים כבר פרויקט בשם ${duplicate.entity.name}.`,
+      };
+    const phone =
+      kind === "employee" ? (parsed.entity_creation?.phone ?? null) : null;
+    const draft = await createEntityDraft({
+      chatId,
+      telegramUserId: userId,
+      telegramActorId: actor.id,
+      kind,
+      name,
+      phone,
+      messageHash: createHash("sha256")
+        .update(message || JSON.stringify(parsed))
+        .digest("hex"),
+    });
+    return {
+      text: formatCreationDraft(
+        kind,
+        name,
+        phone,
+        duplicate.kind === "similar" ? duplicate.entity.name : undefined,
+      ),
+      inlineKeyboard: [
+        [
+          {
+            text: kind === "employee" ? "יצירת עובד" : "יצירת פרויקט",
+            callback_data: `confirm:${draft.id}`,
+          },
+          { text: "ביטול", callback_data: `cancel:${draft.id}` },
+        ],
+      ],
+    };
+  }
+  if (parsed.intent === "UNKNOWN")
+    return {
+      text: "מה תרצה לעשות — לדווח שעות, להוסיף עובד או פרויקט, או לראות דוח?",
+    };
+  if (parsed.intent === "CREATE_TIME_ENTRIES") {
+    if (!parsed.create_groups.length)
+      return { text: "לא נמצאו קבוצות דיווח תקינות." };
+    const resolved: ResolvedDraftEntry[] = [];
+    for (const [groupIndex, group] of parsed.create_groups.entries()) {
+      if (!group.date_reference.trim())
+        return { text: "לא הצלחתי לזהות את תאריך העבודה. באיזה תאריך לדווח?" };
+      const date = resolveDateReference(group.date_reference, businessDate);
+      if (!date)
+        return {
+          text: `התאריך "${group.date_reference}" אינו תקין. נא לכתוב תאריך כמו 30/09/2026.`,
+        };
+      if (!group.project_reference.trim())
+        return missingReferenceReply(
+          chatId,
+          userId,
+          parsed,
+          forced,
+          "project",
+          groupIndex,
+        );
+      const project = resolveWithSelections(
+        "project",
+        group.project_reference,
+        projects,
+        forced,
+      );
+      if (project.kind === "ambiguous")
+        return clarificationReply(
+          chatId,
+          userId,
+          parsed,
+          forced,
+          "project",
+          group.project_reference,
+          project.options,
+        );
+      if (project.kind === "not_found")
+        return {
+          text: entityError("project", group.project_reference, project),
+        };
+      for (const [entryIndex, entry] of group.entries.entries()) {
+        if (!entry.employee_reference.trim())
+          return missingReferenceReply(
+            chatId,
+            userId,
+            parsed,
+            forced,
+            "employee",
+            groupIndex,
+            entryIndex,
+          );
+        const employee = resolveWithSelections(
+          "employee",
+          entry.employee_reference,
+          employees,
+          forced,
+        );
+        if (employee.kind === "ambiguous")
+          return clarificationReply(
+            chatId,
+            userId,
+            parsed,
+            forced,
+            "employee",
+            entry.employee_reference,
+            employee.options,
+          );
+        if (employee.kind === "not_found")
+          return {
+            text: entityError("employee", entry.employee_reference, employee),
+          };
+        const regular = Number(entry.regular_hours),
+          overtime = Number(entry.overtime_hours ?? 0);
+        if (
+          !Number.isFinite(regular) ||
+          !Number.isFinite(overtime) ||
+          regular < 0 ||
+          overtime < 0 ||
+          regular + overtime <= 0 ||
+          regular + overtime > 24
+        )
+          return { text: `מספר השעות עבור ${employee.entity.name} אינו תקין.` };
+        resolved.push({
+          work_date: date,
+          employee_id: employee.entity.id,
+          employee_name: employee.entity.name,
+          project_id: project.entity.id,
+          project_name: project.entity.name,
+          regular_hours: regular,
+          overtime_hours: overtime,
+          notes: entry.notes,
+          operation: "insert",
+          existing_regular_hours: null,
+          existing_overtime_hours: null,
+        });
+      }
+    }
+    if (resolved.length > 30)
+      return { text: "ניתן לאשר עד 30 דיווחים בהודעה אחת. נא לפצל את הדיווח." };
+    if (duplicateProposalKeys(resolved).length)
+      return {
+        text: "אותו עובד מופיע יותר מפעם אחת באותו פרויקט ובאותו תאריך. נא לאחד את הדיווחים.",
+      };
+    timing?.duration("resolution", resolutionStarted);
+    const existing = timing
+      ? await timing.measure("duplicate", () => findExistingEntries(resolved))
+      : await findExistingEntries(resolved);
+    if (!hasCapability(actor, "TIME_ENTRIES_EDIT") && existing.size) {
+      const names = resolved
+        .filter((entry) =>
+          existing.has(
+            `${entry.employee_id}:${entry.project_id}:${entry.work_date}`,
+          ),
+        )
+        .map((entry) => entry.employee_name);
+      return {
+        text: `כבר קיים דיווח עבור ${names.join(", ")} בתאריך הזה. לעדכון דיווח קיים יש לפנות למנהל. לא נשמרו דיווחים מההודעה.`,
+      };
+    }
+    resolved.forEach((e) => {
+      const current = existing.get(
+        `${e.employee_id}:${e.project_id}:${e.work_date}`,
+      );
+      if (current) {
+        e.operation = "update";
+        e.existing_regular_hours = current.regular_hours;
+        e.existing_overtime_hours = current.overtime_hours;
+      }
+    });
+    const draftText = formatCombinedDraft(resolved);
+    if (draftText.length > 4000)
+      return {
+        text: "הטיוטה ארוכה מדי להצגה בטוחה בטלגרם. נא לפצל את הדיווח לשתי הודעות.",
+      };
+    const originalHash = createHash("sha256")
+      .update(message || JSON.stringify(parsed))
+      .digest("hex");
+    const draft = timing
+      ? await timing.measure("draft", () =>
+          createTelegramDraft({
+            chatId,
+            telegramUserId: userId,
+            telegramActorId: actor.id,
+            entries: resolved,
+            messageHash: originalHash,
+          }),
+        )
+      : await createTelegramDraft({
+          chatId,
+          telegramUserId: userId,
+          telegramActorId: actor.id,
+          entries: resolved,
+          messageHash: originalHash,
+        });
+    return {
+      text: draftText,
+      inlineKeyboard: [
+        [
+          {
+            text: confirmationButtonText(resolved),
+            callback_data: `confirm:${draft.id}`,
+          },
+          { text: "❌ ביטול", callback_data: `cancel:${draft.id}` },
+        ],
+      ],
+    };
+  }
+  const report = parsed.report;
+  if (!report) return { text: "לא הצלחתי להבין את הדוח המבוקש." };
+  const projectRef =
+      report.project_reference ||
+      String(previous?.projectReference || "") ||
+      null,
+    employeeRef =
+      report.employee_reference ||
+      String(previous?.employeeReference || "") ||
+      null;
+  let project: NamedEntity | undefined, employee: NamedEntity | undefined;
+  if (projectRef) {
+    const r = resolveWithSelections("project", projectRef, projects, forced);
+    if (r.kind === "ambiguous")
+      return clarificationReply(
+        chatId,
+        userId,
+        parsed,
+        forced,
+        "project",
+        projectRef,
+        r.options,
+      );
+    if (r.kind === "not_found")
+      return { text: entityError("project", projectRef, r) };
+    project = r.entity;
+  }
+  if (employeeRef) {
+    const r = resolveWithSelections("employee", employeeRef, employees, forced);
+    if (r.kind === "ambiguous")
+      return clarificationReply(
+        chatId,
+        userId,
+        parsed,
+        forced,
+        "employee",
+        employeeRef,
+        r.options,
+      );
+    if (r.kind === "not_found")
+      return { text: entityError("employee", employeeRef, r) };
+    employee = r.entity;
+  }
+  timing?.duration("entity_resolution", resolutionStarted);
+  const period = reportPeriod(report, businessDate, previous);
+  if (!period)
+    return {
+      text: "טווח התאריכים אינו תקין. אפשר לכתוב חודש, יום או טווח כמו מ-1.9.26 עד 30.9.26.",
+    };
+  const reportType =
+    employee && project
+      ? "EMPLOYEE_PROJECT"
+      : employee
+        ? "EMPLOYEE"
+        : project
+          ? "PROJECT"
+          : report.report_type;
+  const rows = timing
+    ? await timing.measure("report_query", () =>
+        queryReport({
+          employeeId: employee?.id,
+          projectId: project?.id,
+          fromInclusive: period.fromInclusive,
+          toExclusive: period.toExclusive,
+        }),
+      )
+    : await queryReport({
+        employeeId: employee?.id,
+        projectId: project?.id,
+        fromInclusive: period.fromInclusive,
+        toExclusive: period.toExclusive,
+      });
+  await saveConversationContext(chatId, {
+    employeeReference: employee?.name || null,
+    projectReference: project?.name || null,
+    fromInclusive: period.fromInclusive,
+    toExclusive: period.toExclusive,
+    periodLabel: period.label,
+    periodKind: period.kind,
+    reportType,
+  });
+  if (!rows.length)
+    return { text: formatEmptyReport(period, employee?.name, project?.name) };
+  const result = timing
+    ? await timing.measure("report_aggregation", async () =>
+        buildReportResult(rows, period),
+      )
+    : buildReportResult(rows, period);
+  const scope = {
+    type: reportType,
+    employeeName: employee?.name,
+    projectName: project?.name,
+  };
+  if (report.output_format === "EXCEL") {
+    try {
+      const document = timing
+        ? await timing.measure("excel_generation", () =>
+            generateExcelReport(result, scope),
+          )
+        : await generateExcelReport(result, scope);
+      return { text: formatExcelTelegramSummary(result), document };
+    } catch (error) {
+      if (error instanceof Error && error.message === "EXCEL_REPORT_TOO_LARGE")
+        return {
+          text: "הדוח גדול מדי להפקת Excel מיידית. נא לבחור תקופה קצרה יותר או להוסיף סינון לפי עובד או פרויקט.",
+        };
+      throw error;
+    }
+  }
+  return { text: formatReportResult(result, scope) };
+}
 
-export async function handleClarificationCallback(chatId:number,userId:number,data:string,timing?:TelegramPerformance):Promise<NaturalReply>{const match=data.match(/^clarify:([0-9a-f-]{36}):(\d)$/i);if(!match)return{text:"הבחירה אינה תקינה."};const context=await getConversationContext(chatId);if(!context)return{text:"הבקשה פגה או אינה קיימת. יש לשלוח אותה מחדש."};const selection=selectClarification(context,match[1],Number(match[2]),userId);if(!selection)return{text:"הבחירה אינה תקינה או פגה."};const parsed=parsedIntentSchema.safeParse(selection.parsed);if(!parsed.success)return{text:"הבקשה אינה תקינה או פגה."};return handleNaturalMessage(chatId,userId,"",timing,{parsed:parsed.data,forced:selection.forced});}
+export async function handleClarificationCallback(
+  chatId: number,
+  userId: number,
+  data: string,
+  actor: TelegramActor,
+  timing?: TelegramPerformance,
+): Promise<NaturalReply> {
+  const match = data.match(/^clarify:([0-9a-f-]{36}):(\d)$/i);
+  if (!match) return { text: "הבחירה אינה תקינה." };
+  const context = await getConversationContext(chatId);
+  if (!context) return { text: "הבקשה פגה או אינה קיימת. יש לשלוח אותה מחדש." };
+  const selection = selectClarification(
+    context,
+    match[1],
+    Number(match[2]),
+    userId,
+  );
+  if (!selection) return { text: "הבחירה אינה תקינה או פגה." };
+  const parsed = parsedIntentSchema.safeParse(selection.parsed);
+  if (!parsed.success) return { text: "הבקשה אינה תקינה או פגה." };
+  return handleNaturalMessage(chatId, userId, "", actor, timing, {
+    parsed: parsed.data,
+    forced: selection.forced,
+  });
+}

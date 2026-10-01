@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { answerCallbackQuery, sendChatAction, sendDocument, sendMessage } from "@/lib/telegram/api";
-import { isChatAuthorized, isValidWebhookSecret } from "@/lib/telegram/auth";
+import { answerCallbackQuery, editCallbackMessage, sendChatAction, sendDocument, sendMessage } from "@/lib/telegram/api";
+import { getTelegramActor, isValidWebhookSecret } from "@/lib/telegram/auth";
 import { claimTelegramUpdate, releaseTelegramUpdate } from "@/lib/telegram/data";
 import { routeCommand } from "@/lib/telegram/router";
 import { telegramUpdateSchema } from "@/lib/telegram/types";
@@ -37,26 +37,28 @@ export async function POST(request: Request) {
 
     if (callback?.data && callback.message) {
       const chatId = callback.message.chat.id;
-      const authorized=await timing.measure("authorization",async()=>isChatAuthorized(chatId));
-      if (!authorized) {
+      const actor=await timing.measure("authorization_lookup",()=>getTelegramActor(callback.from.id,chatId,{fresh:true}));
+      if (!actor) {
         console.warn("Unauthorized Telegram callback attempt", { chatId });
         await answerCallbackQuery(callback.id, "אין הרשאה");
       } else {
         const clarification=callback.data.startsWith("clarify:");
-        const reply = clarification ? await handleClarificationCallback(chatId,callback.from.id,callback.data,timing) : await handleDraftCallback(chatId, callback.from.id, callback.data);
+        const reply = clarification ? await handleClarificationCallback(chatId,callback.from.id,callback.data,actor,timing) : await handleDraftCallback(chatId, callback.from.id, callback.data);
         await answerCallbackQuery(callback.id);
-        await timing.measure("telegram_send",()=>sendMessage(chatId, typeof reply==="string"?reply:reply.text, typeof reply==="string"?{}:{inlineKeyboard:reply.inlineKeyboard}));
+        const text=typeof reply==="string"?reply:reply.text,options=typeof reply==="string"?{}:{inlineKeyboard:reply.inlineKeyboard};
+        await timing.measure("telegram_send",()=>editCallbackMessage(chatId,callback.message!.message_id,text,options));
       }
       timing.log({updateId:parsed.data.update_id,flow:"callback"});
     } else if (message?.text) {
-      const authorized=await timing.measure("authorization",async()=>isChatAuthorized(message.chat.id));
-      const reply = await routeCommand(message.chat.id, message.text);
+      const userId=message.from?.id??message.chat.id;
+      const actor=await timing.measure("authorization_lookup",()=>getTelegramActor(userId,message.chat.id));
+      const reply = await routeCommand(userId,message.text,actor);
       if (reply) {
         await timing.measure("telegram_send",()=>sendMessage(message.chat.id, reply));
         timing.log({updateId:parsed.data.update_id,flow:message.text.startsWith("/")?"command":"unauthorized"});
-      } else if (authorized) {
+      } else if (actor) {
         await timing.measure("typing",()=>sendChatAction(message.chat.id));
-        const naturalReply = await handleNaturalMessage(message.chat.id, message.from?.id ?? message.chat.id, message.text, timing);
+        const naturalReply = await handleNaturalMessage(message.chat.id,userId,message.text,actor,timing);
         await timing.measure("telegram_send",async()=>{await sendMessage(message.chat.id,naturalReply.text,{inlineKeyboard:naturalReply.inlineKeyboard});if(naturalReply.document){try{await sendDocument(message.chat.id,naturalReply.document.data,naturalReply.document.filename);}catch(error){console.error("Telegram Excel delivery failed",{updateId:parsed.data.update_id,error:error instanceof Error?error.message:"Unknown error"});await sendMessage(message.chat.id,EXCEL_DELIVERY_FAILURE_MESSAGE);}}});
         timing.log({updateId:parsed.data.update_id,flow:"natural"});
       }

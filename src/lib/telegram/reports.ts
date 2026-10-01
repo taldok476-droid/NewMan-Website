@@ -20,7 +20,7 @@ export type ReportRow = {
   project: { name: string } | null;
 };
 
-export type ReportBreakdown = { id: string; name: string; employees?:number; days: number; regularHours:number; overtimeHours:number; hours: number };
+export type ReportBreakdown = { id: string; name: string; employees?:number; workDays: number; regularHours:number; overtimeHours:number; hours: number };
 export type ReportResult = {
   period: ReportPeriod;
   employees: number;
@@ -83,7 +83,7 @@ export function formatEmptyReport(period:ReportPeriod,employeeName?:string,proje
 function aggregate(rows:ReportRow[],key:"employee"|"project"):ReportBreakdown[]{
   const groups=new Map<string,{name:string;days:Set<string>;employees:Set<string>;regularHours:number;overtimeHours:number}>();
   for(const row of rows){const id=key==="employee"?row.employee_id:row.project_id;const name=key==="employee"?`${row.employee?.first_name??""} ${row.employee?.last_name??""}`.trim():row.project?.name??"פרויקט לא ידוע";const group=groups.get(id)??{name,days:new Set<string>(),employees:new Set<string>(),regularHours:0,overtimeHours:0};group.days.add(row.work_date);group.employees.add(row.employee_id);group.regularHours+=row.regular_hours;group.overtimeHours+=row.overtime_hours;groups.set(id,group);}
-  return[...groups].map(([id,value])=>({id,name:value.name,employees:key==="project"?value.employees.size:undefined,days:value.days.size,regularHours:value.regularHours,overtimeHours:value.overtimeHours,hours:value.regularHours+value.overtimeHours})).sort((a,b)=>a.name.localeCompare(b.name,"he"));
+  return[...groups].map(([id,value])=>({id,name:value.name,employees:key==="project"?value.employees.size:undefined,workDays:value.days.size,regularHours:value.regularHours,overtimeHours:value.overtimeHours,hours:value.regularHours+value.overtimeHours})).sort((a,b)=>a.name.localeCompare(b.name,"he"));
 }
 
 export function buildReportResult(rows:ReportRow[],period:ReportPeriod):ReportResult {
@@ -91,15 +91,15 @@ export function buildReportResult(rows:ReportRow[],period:ReportPeriod):ReportRe
   return{period,employees:new Set(rows.map(row=>row.employee_id)).size,projects:new Set(rows.map(row=>row.project_id)).size,workDays:new Set(rows.map(row=>row.work_date)).size,regularHours,overtimeHours,totalHours:regularHours+overtimeHours,byEmployee:aggregate(rows,"employee"),byProject:aggregate(rows,"project"),rows};
 }
 
-function bullets(rows:ReportBreakdown[],withDays=false):string{return rows.map(row=>`• ${row.name} — ${withDays?`${row.days} ימי עבודה — `:""}${row.hours} שעות`).join("\n");}
+function bullets(rows:ReportBreakdown[],withDays=false):string{return rows.map(row=>`• ${row.name} — ${withDays?`${row.workDays} ימי עבודה — `:""}${row.hours} שעות`).join("\n");}
 
 export function formatReportResult(result:ReportResult,args:{type:"COMPANY"|"WHO_WORKED"|"EMPLOYEE"|"PROJECT"|"EMPLOYEE_PROJECT";employeeName?:string;projectName?:string}):string {
   const overtime=result.overtimeHours>0?`\nשעות נוספות: ${result.overtimeHours}`:"";
   if(args.type==="WHO_WORKED")return`👷 עובדים שעבדו — ${result.period.label}\n\n${bullets(result.byEmployee,true)}\n\nסה״כ:\nעובדים: ${result.employees}\nכמות שעות עבודה: ${result.totalHours}`;
   if(args.type==="EMPLOYEE_PROJECT")return`👷 ${args.employeeName}\n📍 ${args.projectName}\n📅 ${result.period.label}\n\nימי עבודה: ${result.workDays}\nכמות שעות עבודה: ${result.totalHours}${overtime}`;
   if(args.type==="EMPLOYEE")return`👷 ${args.employeeName}\n📅 ${result.period.label}\n\nימי עבודה: ${result.workDays}\nכמות שעות עבודה: ${result.totalHours}${overtime}\n\nלפי פרויקט:\n${bullets(result.byProject)}`;
-  if(args.type==="PROJECT")return`📍 ${args.projectName}\n📅 ${result.period.label}\n\nעובדים: ${result.employees}\nימי עבודה: ${result.workDays}\nכמות שעות עבודה: ${result.totalHours}${overtime}\n\nלפי עובד:\n${bullets(result.byEmployee)}`;
-  return`📊 דוח שעות — ${result.period.label}\n\nעובדים: ${result.employees}\nפרויקטים: ${result.projects}\nימי עבודה: ${result.workDays}\nכמות שעות עבודה: ${result.totalHours}${overtime}\n\nפירוט לפי עובד:\n${bullets(result.byEmployee)}\n\nפירוט לפי פרויקט:\n${bullets(result.byProject)}`;
+  if(args.type==="PROJECT")return`📍 ${args.projectName}\n📅 ${result.period.label}\n\nעובדים: ${result.employees}\nימי עבודה: ${result.workDays}\nכמות שעות עבודה: ${result.totalHours}${overtime}\n\nלפי עובד:\n${bullets(result.byEmployee,true)}`;
+  return`📊 דוח שעות — ${result.period.label}\n\n${bullets(result.byEmployee,true)}\n\nסה״כ:\nעובדים: ${result.employees}\nכמות שעות עבודה: ${result.totalHours}${overtime}\n\nפירוט לפי פרויקט:\n${bullets(result.byProject)}`;
 }
 
 export function formatExcelTelegramSummary(result:ReportResult):string{return`📊 דוח שעות — ${result.period.label}\n\nעובדים: ${result.employees}\nפרויקטים: ${result.projects}\nכמות שעות עבודה: ${result.totalHours}\n\nמצורף דוח Excel מפורט.`;}

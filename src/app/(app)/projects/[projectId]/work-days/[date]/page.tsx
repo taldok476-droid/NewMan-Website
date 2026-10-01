@@ -1,2 +1,125 @@
-import Link from "next/link";import {notFound} from "next/navigation";import {PageHeader} from "@/components/page-header";import {EmptyState} from "@/components/empty-state";import {TimeEntryActions} from "@/components/time-entry-actions";import {createClient} from "@/lib/supabase/server";import {formatHebrewDate} from "@/lib/date-ranges";
-export default async function ProjectWorkDay({params,searchParams}:{params:Promise<{projectId:string;date:string}>;searchParams:Promise<{success?:string;error?:string}>}){const{projectId,date}=await params,p=await searchParams;if(!/^\d{4}-\d{2}-\d{2}$/.test(date))notFound();const s=await createClient();const[{data:project},{data:entries}]=await Promise.all([s.from("projects").select("id,name,location").eq("id",projectId).maybeSingle(),s.from("time_entries").select("*,employees(id,first_name,last_name)").eq("project_id",projectId).eq("work_date",date).order("created_at")]);if(!project)notFound();const rows=entries||[],regular=rows.reduce((a,x)=>a+Number(x.regular_hours),0),overtime=rows.reduce((a,x)=>a+Number(x.overtime_hours),0),back=`/projects/${projectId}/work-days/${date}`;return <><PageHeader title={project.name} description={`${formatHebrewDate(date)}${project.location?` · ${project.location}`:""}`}/>{p.success&&<p className="p-3 mb-4 bg-emerald-50 text-emerald-700 rounded">{p.success}</p>}{p.error&&<p className="p-3 mb-4 bg-red-50 text-red-700 rounded">{p.error}</p>}<div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">{[["מספר עובדים",new Set(rows.map(x=>x.employee_id)).size],["שעות רגילות",regular],["שעות נוספות",overtime],["סה״כ שעות",regular+overtime]].map(([title,value])=><div className="card p-4" key={title}><p className="text-sm text-slate-500">{title}</p><b className="text-2xl">{value}</b></div>)}</div><section className="card table-wrap">{rows.length?<table><thead><tr><th>עובד</th><th>רגילות</th><th>נוספות</th><th>סה״כ</th><th>מקור</th><th>הערות</th><th>פעולות</th></tr></thead><tbody>{rows.map((row:any)=>{const employeeName=`${row.employees?.first_name||""} ${row.employees?.last_name||""}`.trim();return <tr key={row.id}><td><Link className="font-bold text-[#a96222] hover:underline" href={`/employees/${row.employee_id}`}>{employeeName}</Link></td><td>{row.regular_hours}</td><td>{row.overtime_hours}</td><td><b>{Number(row.regular_hours)+Number(row.overtime_hours)}</b></td><td>{row.source==="telegram"?"Telegram":"Web"}</td><td className="max-w-56 truncate">{row.notes||"—"}</td><td><TimeEntryActions entry={{id:row.id,work_date:row.work_date,regular_hours:Number(row.regular_hours),overtime_hours:Number(row.overtime_hours),employee_name:employeeName,project_name:project.name}} returnTo={back}/></td></tr>})}</tbody></table>:<EmptyState text="אין דיווחים לפרויקט בתאריך זה"/>}</section></>}
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
+import { TimeEntryActions } from "@/components/time-entry-actions";
+import { createClient } from "@/lib/supabase/server";
+import { formatHebrewDate } from "@/lib/date-ranges";
+export default async function ProjectWorkDay({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ projectId: string; date: string }>;
+  searchParams: Promise<{ success?: string; error?: string }>;
+}) {
+  const { projectId, date } = await params,
+    p = await searchParams;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) notFound();
+  const s = await createClient();
+  const [{ data: project }, { data: entries }] = await Promise.all([
+    s
+      .from("projects")
+      .select("id,name,location")
+      .eq("id", projectId)
+      .maybeSingle(),
+    s
+      .from("time_entries")
+      .select("*,employees(id,first_name,last_name),telegram_users(display_name)")
+      .eq("project_id", projectId)
+      .eq("work_date", date)
+      .order("created_at"),
+  ]);
+  if (!project) notFound();
+  const rows = entries || [],
+    regular = rows.reduce((a, x) => a + Number(x.regular_hours), 0),
+    overtime = rows.reduce((a, x) => a + Number(x.overtime_hours), 0),
+    back = `/projects/${projectId}/work-days/${date}`;
+  return (
+    <>
+      <PageHeader
+        title={project.name}
+        description={`${formatHebrewDate(date)}${project.location ? ` · ${project.location}` : ""}`}
+      />
+      {p.success && (
+        <p className="p-3 mb-4 bg-emerald-50 text-emerald-700 rounded">
+          {p.success}
+        </p>
+      )}
+      {p.error && (
+        <p className="p-3 mb-4 bg-red-50 text-red-700 rounded">{p.error}</p>
+      )}
+      <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
+        {[
+          ["מספר עובדים", new Set(rows.map((x) => x.employee_id)).size],
+          ["שעות רגילות", regular],
+          ["שעות נוספות", overtime],
+          ["סה״כ שעות", regular + overtime],
+        ].map(([title, value]) => (
+          <div className="card p-4" key={title}>
+            <p className="text-sm text-slate-500">{title}</p>
+            <b className="text-2xl">{value}</b>
+          </div>
+        ))}
+      </div>
+      <section className="card table-wrap">
+        {rows.length ? (
+          <table>
+            <thead>
+              <tr>
+                <th>עובד</th>
+                <th>רגילות</th>
+                <th>נוספות</th>
+                <th>סה״כ</th>
+                <th>מקור</th>
+                <th>הערות</th>
+                <th>פעולות</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row: any) => {
+                const employeeName =
+                  `${row.employees?.first_name || ""} ${row.employees?.last_name || ""}`.trim();
+                return (
+                  <tr key={row.id}>
+                    <td>
+                      <Link
+                        className="font-bold text-[#a96222] hover:underline"
+                        href={`/employees/${row.employee_id}`}
+                      >
+                        {employeeName}
+                      </Link>
+                    </td>
+                    <td>{row.regular_hours}</td>
+                    <td>{row.overtime_hours}</td>
+                    <td>
+                      <b>
+                        {Number(row.regular_hours) + Number(row.overtime_hours)}
+                      </b>
+                    </td>
+                    <td>{row.source === "telegram" ? <><span>Telegram</span><span className="block text-xs text-slate-500">{row.telegram_users?.display_name?`דווח ע״י: ${row.telegram_users.display_name}`:"דווח דרך Telegram"}</span></> : "Web"}</td>
+                    <td className="max-w-56 truncate">{row.notes || "—"}</td>
+                    <td>
+                      <TimeEntryActions
+                        entry={{
+                          id: row.id,
+                          work_date: row.work_date,
+                          regular_hours: Number(row.regular_hours),
+                          overtime_hours: Number(row.overtime_hours),
+                          employee_name: employeeName,
+                          project_name: project.name,
+                        }}
+                        returnTo={back}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : (
+          <EmptyState text="אין דיווחים לפרויקט בתאריך זה" />
+        )}
+      </section>
+    </>
+  );
+}

@@ -42,3 +42,8 @@ if (!response.ok || !result.ok) {
 }
 
 console.log("Telegram webhook registered successfully.");
+
+const commandsResponse=await fetch(`https://api.telegram.org/bot${token}/setMyCommands`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({commands:[{command:"start",description:"פתיחת NEWMAN"},{command:"menu",description:"תפריט פעולות"},{command:"myid",description:"הצגת המזהה שלי"},{command:"help",description:"עזרה"}]})});
+const commandsResult=await commandsResponse.json();
+if(!commandsResponse.ok||!commandsResult.ok){console.error("Telegram rejected bot command registration.",{status:commandsResponse.status,description:commandsResult.description});process.exit(1);}
+console.log("Telegram bot commands registered successfully.");
