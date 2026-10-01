@@ -7,8 +7,8 @@ vi.mock("server-only",()=>({}));
 vi.mock("@/lib/supabase/admin",()=>({createAdminClient:vi.fn()}));
 vi.mock("../ai/openai",()=>({getIntentProvider:()=>({parse:mocks.aiParse})}));
 vi.mock("../reference-cache",()=>({
-  getCachedActiveEmployees:async()=>[{id:"e1",name:"יוסף נחאש"}],
-  getCachedActiveProjects:async()=>[{id:"p1",name:"עובדי רג״י טל"}],
+  getCachedActiveEmployees:async()=>["יוסף","מואיד","קיס","ורד","עאיש","איהאב","קרם","חוסאם","עבד","בהאא","שריף","חוסין","מועתז","מוחמד","אנס","עלאא"].map((name,index)=>({id:`e${index+1}`,name})),
+  getCachedActiveProjects:async()=>["טל","אחזקה","קבלנות","משמיע","שוהם"].map((name,index)=>({id:`p${index+1}`,name})),
 }));
 vi.mock("../data",()=>({
   clearConversationContext:mocks.clearContext,
@@ -99,4 +99,39 @@ describe("two-stage Telegram intent routing",()=>{
   });
   it("allows scheduler attendance and attributes the draft to the scheduler actor",async()=>{const reply=await handleNaturalMessage(1,3,"היום עובדים אצל טל\nיוסף",scheduler);expect(reply.text).toContain("8 שעות");expect(mocks.createTelegramDraft).toHaveBeenCalledWith(expect.objectContaining({telegramActorId:scheduler.id,entries:[expect.objectContaining({employee_id:"e1",regular_hours:8})]}));});
   it("keeps the manager duplicate update workflow",async()=>{mocks.findExisting.mockResolvedValue(new Map([["e1:p1:2026-10-01",{regular_hours:7,overtime_hours:0}]]));const reply=await handleNaturalMessage(1,2,"היום עובדים אצל טל\nיוסף 8",manager);expect(reply.text).toContain("עדכון דיווח קיים");expect(mocks.createTelegramDraft).toHaveBeenCalled();});
+  it("routes the exact production schedule identically for manager and scheduler without AI",async()=>{const message=`היום עבדו אצל טל:
+יוסף
+מואיד
+קיס
+ורד
+
+ובאחזקה:
+עאיש
+
+ובקבלנות:
+איהאב
+קרם
+
+ובמשמיע:
+חוסאם
+עבד
+בהאא
+
+ובשוהם:
+שריף
+חוסין
+מועתז
+מוחמד
+אנס
+עלאא
+יוסף`;
+    await handleNaturalMessage(1,2,message,manager);
+    const managerEntries=mocks.createTelegramDraft.mock.calls.at(-1)?.[0].entries;
+    mocks.createTelegramDraft.mockClear();
+    await handleNaturalMessage(1,3,message,scheduler);
+    const schedulerEntries=mocks.createTelegramDraft.mock.calls.at(-1)?.[0].entries;
+    expect(schedulerEntries).toEqual(managerEntries);
+    expect(schedulerEntries).toHaveLength(17);
+    expect(mocks.aiParse).not.toHaveBeenCalled();
+  });
 });

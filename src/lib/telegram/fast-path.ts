@@ -88,10 +88,14 @@ export function parseSimpleTimeEntry(message: string): ParsedIntent | null {
   return null;
 }
 
-function parseProjectHeader(line:string):{date:string|null;project:string}|null{
+function parseProjectHeader(line:string,allowBarePrefixedHeader=false):{date:string|null;project:string}|null{
   const extracted=extractDateExpression(line);
-  const text=(extracted?`${line.slice(0,extracted.start)} ${line.slice(extracted.end)}`:line).replace(/\s+/g," ").trim();
-  const match=text.match(/^עובדים\s+אצל\s+(.+)$/)??text.match(/^עובדים\s+ב(.+)$/)??text.match(/^פרויקט\s+(.+)$/)??text.match(/^ב(.+)$/);
+  const withoutDate=extracted?`${line.slice(0,extracted.start)} ${line.slice(extracted.end)}`:line;
+  const hasTrailingPunctuation=/[:：׃]\s*$/.test(withoutDate);
+  const text=withoutDate.replace(/\s*[:：׃]\s*$/," ").replace(/\s+/g," ").trim();
+  const explicit=text.match(/^(?:עובדים|עבדו)\s+(?:אצל\s+|ב\s*)(.+)$/)??text.match(/^פרויקט\s+(.+)$/);
+  const continued=text.match(/^וב\s*(.+)$/)??((hasTrailingPunctuation||allowBarePrefixedHeader)?text.match(/^ב\s*(.+)$/):null);
+  const match=explicit??continued;
   if(!match||!match[1].trim()||/\d+(?:\.\d+)?\s*(?:שעות)?$/.test(match[1]))return null;
   return{date:extracted?.expression??null,project:match[1].trim()};
 }
@@ -109,25 +113,30 @@ function parseAttendanceEmployee(line:string):ParsedIntent["create_groups"][numb
 
 /** Fast path for a dated project header followed by employee lines and optional project sections. */
 export function parseAttendanceList(message:string):ParsedIntent|null{
-  const lines=message.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
-  if(lines.length<2)return null;
-  const first=parseProjectHeader(lines[0]);
+  const lines=message.split(/\r?\n/).map(line=>line.trim());
+  const firstIndex=lines.findIndex(Boolean);
+  if(firstIndex<0)return null;
+  const first=parseProjectHeader(lines[firstIndex]);
   if(!first?.date)return null;
   const groups:ParsedIntent["create_groups"]=[];
   let activeDate=first.date;
   let current:ParsedIntent["create_groups"][number]={date_reference:activeDate,project_reference:first.project,entries:[]};
   groups.push(current);
-  for(const line of lines.slice(1)){
-    const header=parseProjectHeader(line);
+  let precededByBlank=false;
+  for(const line of lines.slice(firstIndex+1)){
+    if(!line){precededByBlank=true;continue;}
+    const header=parseProjectHeader(line,precededByBlank);
     if(header&&current.entries.length){
       if(header.date)activeDate=header.date;
       current={date_reference:activeDate,project_reference:header.project,entries:[]};
       groups.push(current);
+      precededByBlank=false;
       continue;
     }
     const entry=parseAttendanceEmployee(line);
     if(!entry)return null;
     current.entries.push(entry);
+    precededByBlank=false;
   }
   if(groups.some(group=>!group.entries.length))return null;
   return{intent:"CREATE_TIME_ENTRIES",create_groups:groups,entity_creation:null,report:null,missing_information:[]};
