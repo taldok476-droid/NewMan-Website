@@ -41,20 +41,20 @@ export async function generateExcelReport(result:ReportResult,scope:ExcelReportS
   if(result.overtimeHours>0){summary.addRow(["שעות רגילות",result.regularHours]);summary.addRow(["שעות נוספות",result.overtimeHours]);summary.addRow(["סה״כ שעות",result.totalHours]);}
   summary.getColumn(2).numFmt="#,#00.##";
 
-  const employees=workbook.addWorksheet("לפי עובדים");setupSheet(employees,[28,16,14,16,16,16]);
-  styleHeader(employees.addRow(["עובד","מספר עובד","ימי עבודה","שעות רגילות","שעות נוספות","סה״כ שעות"]));
-  result.byEmployee.forEach(row=>employees.addRow([row.name,row.employeeNumber??"",row.days,row.regularHours,row.overtimeHours,row.hours]));
-  const employeeTotal=employees.addRow(["סה״כ","",result.workDays,result.regularHours,result.overtimeHours,result.totalHours]);styleTotals(employeeTotal);hoursFormat(employees,[3,4,5,6]);addTableFilter(employees,"F",Math.max(1,employees.rowCount-1));
+  const employees=workbook.addWorksheet("לפי עובדים");setupSheet(employees,[28,14,16,16,16]);
+  styleHeader(employees.addRow(["עובד","ימי עבודה","שעות רגילות","שעות נוספות","סה״כ שעות"]));
+  result.byEmployee.forEach(row=>employees.addRow([row.name,row.days,row.regularHours,row.overtimeHours,row.hours]));
+  const employeeTotal=employees.addRow(["סה״כ",result.workDays,result.regularHours,result.overtimeHours,result.totalHours]);styleTotals(employeeTotal);hoursFormat(employees,[2,3,4,5]);addTableFilter(employees,"E",Math.max(1,employees.rowCount-1));
 
   const projects=workbook.addWorksheet("לפי פרויקטים");setupSheet(projects,[32,16,14,16,16,16]);
   styleHeader(projects.addRow(["פרויקט","מספר עובדים","ימי עבודה","שעות רגילות","שעות נוספות","סה״כ שעות"]));
   result.byProject.forEach(row=>projects.addRow([row.name,row.employees??0,row.days,row.regularHours,row.overtimeHours,row.hours]));
   const projectTotal=projects.addRow(["סה״כ",result.employees,result.workDays,result.regularHours,result.overtimeHours,result.totalHours]);styleTotals(projectTotal);hoursFormat(projects,[2,3,4,5,6]);addTableFilter(projects,"F",Math.max(1,projects.rowCount-1));
 
-  const details=workbook.addWorksheet("פירוט דיווחים");setupSheet(details,[15,26,16,30,16,16,16,16,35]);
-  styleHeader(details.addRow(["תאריך","עובד","מספר עובד","פרויקט","שעות רגילות","שעות נוספות","סה״כ שעות","מקור דיווח","הערה"]));
-  [...result.rows].sort((a,b)=>a.work_date.localeCompare(b.work_date)||(a.project?.name??"").localeCompare(b.project?.name??"","he")||`${a.employee?.first_name??""} ${a.employee?.last_name??""}`.localeCompare(`${b.employee?.first_name??""} ${b.employee?.last_name??""}`,"he")).forEach(row=>details.addRow([new Date(`${row.work_date}T00:00:00Z`),`${row.employee?.first_name??""} ${row.employee?.last_name??""}`.trim(),row.employee?.employee_number??"",row.project?.name??"",row.regular_hours,row.overtime_hours,row.regular_hours+row.overtime_hours,row.source,row.notes??""]));
-  details.getColumn(1).numFmt="dd/mm/yyyy";hoursFormat(details,[5,6,7]);addTableFilter(details,"I",details.rowCount);
+  const details=workbook.addWorksheet("פירוט דיווחים");setupSheet(details,[15,26,30,16,16,16,16,35]);
+  styleHeader(details.addRow(["תאריך","עובד","פרויקט","שעות רגילות","שעות נוספות","סה״כ שעות","מקור דיווח","הערה"]));
+  [...result.rows].sort((a,b)=>a.work_date.localeCompare(b.work_date)||(a.project?.name??"").localeCompare(b.project?.name??"","he")||`${a.employee?.first_name??""} ${a.employee?.last_name??""}`.localeCompare(`${b.employee?.first_name??""} ${b.employee?.last_name??""}`,"he")).forEach(row=>details.addRow([new Date(`${row.work_date}T00:00:00Z`),`${row.employee?.first_name??""} ${row.employee?.last_name??""}`.trim(),row.project?.name??"",row.regular_hours,row.overtime_hours,row.regular_hours+row.overtime_hours,row.source,row.notes??""]));
+  details.getColumn(1).numFmt="dd/mm/yyyy";hoursFormat(details,[4,5,6]);addTableFilter(details,"H",details.rowCount);
   for(const sheet of workbook.worksheets){sheet.eachRow(row=>row.eachCell(cell=>{cell.alignment={...cell.alignment,horizontal:"right",vertical:"middle"};cell.border={bottom:{style:"hair",color:{argb:light}}};}));}
   const data=await workbook.xlsx.writeBuffer();
   return{filename:safeFilename(result,scope),data:Buffer.from(data)};

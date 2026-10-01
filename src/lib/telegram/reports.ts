@@ -16,11 +16,11 @@ export type ReportRow = {
   overtime_hours: number;
   source: string;
   notes: string | null;
-  employee: { first_name: string; last_name: string; employee_number: string } | null;
+  employee: { first_name: string; last_name: string } | null;
   project: { name: string } | null;
 };
 
-export type ReportBreakdown = { id: string; name: string; employeeNumber?:string; employees?:number; days: number; regularHours:number; overtimeHours:number; hours: number };
+export type ReportBreakdown = { id: string; name: string; employees?:number; days: number; regularHours:number; overtimeHours:number; hours: number };
 export type ReportResult = {
   period: ReportPeriod;
   employees: number;
@@ -81,9 +81,9 @@ export function formatEmptyReport(period:ReportPeriod,employeeName?:string,proje
 }
 
 function aggregate(rows:ReportRow[],key:"employee"|"project"):ReportBreakdown[]{
-  const groups=new Map<string,{name:string;employeeNumber?:string;days:Set<string>;employees:Set<string>;regularHours:number;overtimeHours:number}>();
-  for(const row of rows){const id=key==="employee"?row.employee_id:row.project_id;const name=key==="employee"?`${row.employee?.first_name??""} ${row.employee?.last_name??""}`.trim():row.project?.name??"פרויקט לא ידוע";const group=groups.get(id)??{name,employeeNumber:key==="employee"?row.employee?.employee_number:undefined,days:new Set<string>(),employees:new Set<string>(),regularHours:0,overtimeHours:0};group.days.add(row.work_date);group.employees.add(row.employee_id);group.regularHours+=row.regular_hours;group.overtimeHours+=row.overtime_hours;groups.set(id,group);}
-  return[...groups].map(([id,value])=>({id,name:value.name,employeeNumber:value.employeeNumber,employees:key==="project"?value.employees.size:undefined,days:value.days.size,regularHours:value.regularHours,overtimeHours:value.overtimeHours,hours:value.regularHours+value.overtimeHours})).sort((a,b)=>a.name.localeCompare(b.name,"he"));
+  const groups=new Map<string,{name:string;days:Set<string>;employees:Set<string>;regularHours:number;overtimeHours:number}>();
+  for(const row of rows){const id=key==="employee"?row.employee_id:row.project_id;const name=key==="employee"?`${row.employee?.first_name??""} ${row.employee?.last_name??""}`.trim():row.project?.name??"פרויקט לא ידוע";const group=groups.get(id)??{name,days:new Set<string>(),employees:new Set<string>(),regularHours:0,overtimeHours:0};group.days.add(row.work_date);group.employees.add(row.employee_id);group.regularHours+=row.regular_hours;group.overtimeHours+=row.overtime_hours;groups.set(id,group);}
+  return[...groups].map(([id,value])=>({id,name:value.name,employees:key==="project"?value.employees.size:undefined,days:value.days.size,regularHours:value.regularHours,overtimeHours:value.overtimeHours,hours:value.regularHours+value.overtimeHours})).sort((a,b)=>a.name.localeCompare(b.name,"he"));
 }
 
 export function buildReportResult(rows:ReportRow[],period:ReportPeriod):ReportResult {

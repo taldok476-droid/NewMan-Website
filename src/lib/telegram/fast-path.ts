@@ -5,6 +5,7 @@ import { resolveEntity, type NamedEntity } from "./resolution";
 
 const dateExpression = String.raw`(?:היום|אתמול|ב(?:-|\s)?\d{1,2}\s*לחודש|ביום\s+\d{1,2}\s*לחודש|בתאריך\s+\d{1,2}\s*לחודש|בראשון\s*לחודש|ב(?:-|\s)?\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?)`;
 const number = String.raw`(\d+(?:\.\d+)?)`;
+export const DEFAULT_REGULAR_HOURS = 8;
 const patterns = [
   new RegExp(`^(${dateExpression})\\s+(.+?)\\s+עבד(?:ה)?\\s+אצל\\s+(.+?)\\s+${number}\\s+שעות$`),
   new RegExp(`^(${dateExpression})\\s+(.+?)\\s+עבד(?:ה)?\\s+${number}\\s+שעות\\s+אצל\\s+(.+?)$`),
@@ -64,7 +65,75 @@ export function parseSimpleTimeEntry(message: string): ParsedIntent | null {
       missing_information: [],
     };
   }
+  const omittedHours = withoutDate.match(/^(.+?)\s+(עבד(?:ה)?|עבדו)\s+אצל\s+(.+)$/);
+  if (omittedHours) {
+    const employees = omittedHours[1].split(/\s+ו(?=\S)/).map(value => value.trim()).filter(Boolean);
+    const project = omittedHours[3].trim();
+    if (employees.length && !/[,:;]|\b(?:כמה|מי|דוח)\b/.test(omittedHours[1]) && !/\b(?:עבד|עבדו|שעות)\b/.test(project)) {
+      return {
+        intent: "CREATE_TIME_ENTRIES",
+        create_groups: [{
+          date_reference: extracted.expression,
+          project_reference: project,
+          entries: employees.map(employee_reference => ({ employee_reference, regular_hours: DEFAULT_REGULAR_HOURS, overtime_hours: 0, notes: null })),
+        }],
+        report: null,
+        missing_information: [],
+      };
+    }
+  }
   return null;
+}
+
+function parseProjectHeader(line:string):{date:string|null;project:string}|null{
+  const extracted=extractDateExpression(line);
+  const text=(extracted?`${line.slice(0,extracted.start)} ${line.slice(extracted.end)}`:line).replace(/\s+/g," ").trim();
+  const match=text.match(/^עובדים\s+אצל\s+(.+)$/)??text.match(/^עובדים\s+ב(.+)$/)??text.match(/^פרויקט\s+(.+)$/)??text.match(/^ב(.+)$/);
+  if(!match||!match[1].trim()||/\d+(?:\.\d+)?\s*(?:שעות)?$/.test(match[1]))return null;
+  return{date:extracted?.expression??null,project:match[1].trim()};
+}
+
+function parseAttendanceEmployee(line:string):ParsedIntent["create_groups"][number]["entries"][number]|null{
+  const separated=line.match(/^(.+?)\s*(?:-|:|־)\s*(\d+(?:\.\d+)?)\s*(?:שעות)?$/);
+  const spaced=line.match(/^(.+?)\s+(\d+(?:\.\d+)?)(?:\s+שעות)?$/);
+  const match=separated??spaced;
+  const employee=(match?.[1]??line).trim();
+  if(!employee||/\d/.test(employee)||/^(?:מי|כמה|תן|דוח|עובדים|פרויקט)\b/.test(employee))return null;
+  const hours=match?Number(match[2]):DEFAULT_REGULAR_HOURS;
+  if(!Number.isFinite(hours)||hours<=0||hours>24)return null;
+  return{employee_reference:employee,regular_hours:hours,overtime_hours:match?null:0,notes:null};
+}
+
+/** Fast path for a dated project header followed by employee lines and optional project sections. */
+export function parseAttendanceList(message:string):ParsedIntent|null{
+  const lines=message.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
+  if(lines.length<2)return null;
+  const first=parseProjectHeader(lines[0]);
+  if(!first?.date)return null;
+  const groups:ParsedIntent["create_groups"]=[];
+  let activeDate=first.date;
+  let current:ParsedIntent["create_groups"][number]={date_reference:activeDate,project_reference:first.project,entries:[]};
+  groups.push(current);
+  for(const line of lines.slice(1)){
+    const header=parseProjectHeader(line);
+    if(header&&current.entries.length){
+      if(header.date)activeDate=header.date;
+      current={date_reference:activeDate,project_reference:header.project,entries:[]};
+      groups.push(current);
+      continue;
+    }
+    const entry=parseAttendanceEmployee(line);
+    if(!entry)return null;
+    current.entries.push(entry);
+  }
+  if(groups.some(group=>!group.entries.length))return null;
+  return{intent:"CREATE_TIME_ENTRIES",create_groups:groups,report:null,missing_information:[]};
+}
+
+/** Applies the business default only to already-classified create proposals. */
+export function applyDefaultWorkdayHours(parsed:ParsedIntent):ParsedIntent{
+  if(parsed.intent!=="CREATE_TIME_ENTRIES")return parsed;
+  return{...parsed,missing_information:parsed.missing_information.filter(item=>item!=="hours"),create_groups:parsed.create_groups.map(group=>({...group,entries:group.entries.map(entry=>entry.regular_hours===null?{...entry,regular_hours:DEFAULT_REGULAR_HOURS,overtime_hours:entry.overtime_hours??0}:entry)}))};
 }
 
 function parseMultilineGroup(line:string,dateReference:string):ParsedIntent["create_groups"][number]|null{

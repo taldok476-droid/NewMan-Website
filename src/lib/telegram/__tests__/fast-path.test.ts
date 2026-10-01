@@ -13,7 +13,7 @@ describe("Telegram deterministic fast path",()=>{
   it("falls back to AI for a complex multi-project message",()=>expect(parseSimpleTimeEntry("היום אצל טל מואיד ויוסף עבדו 8 שעות וקייס 10 שעות ובשוהם ארנון עבד 7.5 שעות")).toBeNull());
   it("falls back to AI for natural report queries",()=>expect(parseSimpleTimeEntry("כמה שעות עבד מואיד אצל טל בספטמבר?")).toBeNull());
   it("falls back to AI for conversational follow-ups",()=>expect(parseSimpleTimeEntry("ואצל טל?")).toBeNull());
-  it("does not parse a message without explicit hours",()=>expect(parseSimpleTimeEntry("היום מואיד עבד אצל טל")).toBeNull());
+  it("parses a creation sentence without explicit hours using the business default",()=>expect(parseSimpleTimeEntry("היום מואיד עבד אצל טל")?.create_groups[0].entries[0]).toMatchObject({regular_hours:8,overtime_hours:0}));
   it("does not parse multiple employees as a single employee",()=>expect(parseSimpleTimeEntry("היום מואיד ויוסף עבד אצל טל 8 שעות")).toBeNull());
   it("keeps unknown employee resolution safe",()=>{const parsed=parseSimpleTimeEntry("היום אלמוני עבד אצל טל 8 שעות")!;expect(resolveEntity(parsed.create_groups[0].entries[0].employee_reference,[{id:"1",name:"מואיד"}]).kind).toBe("not_found");});
   it("keeps unknown project resolution safe",()=>{const parsed=parseSimpleTimeEntry("היום מואיד עבד אצל פרויקטלאקיים 8 שעות")!;expect(resolveEntity(parsed.create_groups[0].project_reference,[{id:"1",name:"עובדי רג״י טל"}]).kind).toBe("not_found");});
