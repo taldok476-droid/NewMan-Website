@@ -96,3 +96,14 @@ export function parseMultilineTimeEntries(message:string):ParsedIntent|null{
 
 export type ReadOnlyIntent="PROJECTS_LIST"|"EMPLOYEES_LIST"|"TODAY_STATUS";
 export function recognizeReadOnlyIntent(message:string):ReadOnlyIntent|null{const text=message.normalize("NFKD").replace(/[?!.,״׳'"-]/g," ").replace(/\s+/g," ").trim();if(/פרויקט/.test(text)&&/(איזה|אילו|מה|תראה|הצג|פתוח|פעיל)/.test(text))return"PROJECTS_LIST";if(/עובד/.test(text)&&/(איזה|אילו|מי|תראה|הצג|רשימ)/.test(text))return"EMPLOYEES_LIST";if(/היום/.test(text)&&/(מי עבד|מה דווח|דיווח|עבד היום)/.test(text))return"TODAY_STATUS";return null;}
+
+const reportPeriod = String.raw`(?:ב?חודש\s+)?(?:ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)(?:\s+\d{2,4})?|החודש(?:\s+הזה|\s+שעבר)?|חודש\s+(?:נוכחי|שעבר)|השבוע(?:\s+הזה)?|היום|אתמול|מתחילת\s+(?:החודש|השבוע)`;
+export function parseSimpleReportQuery(message:string):ParsedIntent|null{
+  const text=message.trim().replace(/[?؟!]$/g,"").replace(/\s+/g," ");
+  const who=text.match(new RegExp(`^מי עבד (?:ב)?(${reportPeriod})$`));
+  const all=text.match(new RegExp(`^(?:תן לי )?דוח(?: שעות)? (?:של )?כל העובדים (?:ב)?(${reportPeriod})$`));
+  const company=text.match(new RegExp(`^כמה שעות עשינו (?:ב)?(${reportPeriod})$`))??text.match(new RegExp(`^(?:תן לי )?דוח (?:ל)?(${reportPeriod})$`));
+  const match=who??all??company;
+  if(!match)return null;
+  return{intent:"REPORT_QUERY",create_groups:[],report:{report_type:who?"WHO_WORKED":"COMPANY",employee_reference:null,project_reference:null,date_reference:match[1],date_from_reference:null,date_to_reference:null},missing_information:[]};
+}
