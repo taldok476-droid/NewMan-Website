@@ -32,6 +32,7 @@ export function parseSimpleTimeEntry(message: string): ParsedIntent | null {
         entries: [{ employee_reference: employee, regular_hours: hours, overtime_hours: null, notes: null }],
       }],
       report: null,
+      entity_creation: null,
       missing_information: [],
     };
   }
@@ -62,6 +63,7 @@ export function parseSimpleTimeEntry(message: string): ParsedIntent | null {
         entries: [{ employee_reference: employee, regular_hours: hours, overtime_hours: null, notes: null }],
       }],
       report: null,
+      entity_creation: null,
       missing_information: [],
     };
   }
@@ -78,6 +80,7 @@ export function parseSimpleTimeEntry(message: string): ParsedIntent | null {
           entries: employees.map(employee_reference => ({ employee_reference, regular_hours: DEFAULT_REGULAR_HOURS, overtime_hours: 0, notes: null })),
         }],
         report: null,
+        entity_creation: null,
         missing_information: [],
       };
     }
@@ -127,7 +130,7 @@ export function parseAttendanceList(message:string):ParsedIntent|null{
     current.entries.push(entry);
   }
   if(groups.some(group=>!group.entries.length))return null;
-  return{intent:"CREATE_TIME_ENTRIES",create_groups:groups,report:null,missing_information:[]};
+  return{intent:"CREATE_TIME_ENTRIES",create_groups:groups,entity_creation:null,report:null,missing_information:[]};
 }
 
 /** Applies the business default only to already-classified create proposals. */
@@ -162,7 +165,7 @@ export function parseMultilineTimeEntries(message:string):ParsedIntent|null{
     if(!group)return null;
     groups.push(group);
   }
-  return{intent:"CREATE_TIME_ENTRIES",create_groups:groups,report:null,missing_information:[]};
+  return{intent:"CREATE_TIME_ENTRIES",create_groups:groups,entity_creation:null,report:null,missing_information:[]};
 }
 
 export type ReadOnlyIntent="PROJECTS_LIST"|"EMPLOYEES_LIST"|"TODAY_STATUS";
@@ -177,11 +180,11 @@ export function parseSimpleReportQuery(message:string):ParsedIntent|null{
   const match=who??all??company;
   if(!match)return null;
   const output_format=/(?:אקסל|קובץ|תכין|תוציא)/.test(text)?"EXCEL":"TEXT";
-  return{intent:"REPORT_QUERY",create_groups:[],report:{report_type:who?"WHO_WORKED":"COMPANY",output_format,employee_reference:null,project_reference:null,date_reference:match[1],date_from_reference:null,date_to_reference:null},missing_information:[]};
+  return{intent:"REPORT_QUERY",create_groups:[],entity_creation:null,report:{report_type:who?"WHO_WORKED":"COMPANY",output_format,employee_reference:null,project_reference:null,date_reference:match[1],date_from_reference:null,date_to_reference:null},missing_information:[]};
 }
 
 function splitReportSubjectAndPeriod(value:string,businessDate:string):{subject:string;period:string}|null{const words=value.trim().split(/\s+/);for(let index=1;index<words.length;index+=1){const period=words.slice(index).join(" ");if(resolveReportPeriod(period,businessDate))return{subject:words.slice(0,index).join(" "),period};}return null;}
-function reportIntent(type:NonNullable<ParsedIntent["report"]>["report_type"],format:"TEXT"|"EXCEL",period:string,employee:string|null,project:string|null):ParsedIntent{return{intent:"REPORT_QUERY",create_groups:[],report:{report_type:type,output_format:format,employee_reference:employee,project_reference:project,date_reference:period,date_from_reference:null,date_to_reference:null},missing_information:[]};}
+function reportIntent(type:NonNullable<ParsedIntent["report"]>["report_type"],format:"TEXT"|"EXCEL",period:string,employee:string|null,project:string|null):ParsedIntent{return{intent:"REPORT_QUERY",create_groups:[],entity_creation:null,report:{report_type:type,output_format:format,employee_reference:employee,project_reference:project,date_reference:period,date_from_reference:null,date_to_reference:null},missing_information:[]};}
 export function parseEntityReportQuery(message:string,businessDate:string,employees:NamedEntity[],projects:NamedEntity[]):ParsedIntent|null{
   const text=message.trim().replace(/[?؟!]$/g,"").replace(/\s+/g," "),format=/(?:אקסל|קובץ|תכין|תוציא)/.test(text)?"EXCEL":"TEXT";
   const employeeRequest=text.match(/^כמה שעות עבד (.+)$/);

@@ -53,7 +53,7 @@ describe("newline-separated Telegram work groups", () => {
 
 describe("post-extraction inheritance and empty references", () => {
   it("inherits only an active date and changes it on an explicit later date", () => {
-    const normalized=inheritCreateGroupDates({intent:"CREATE_TIME_ENTRIES",report:null,missing_information:[],create_groups:[
+    const normalized=inheritCreateGroupDates({intent:"CREATE_TIME_ENTRIES",entity_creation:null,report:null,missing_information:[],create_groups:[
       {date_reference:"היום",project_reference:"טל",entries:[{employee_reference:"קיס",regular_hours:8,overtime_hours:null,notes:null}]},
       {date_reference:"",project_reference:"שוהם",entries:[{employee_reference:"וורד",regular_hours:8,overtime_hours:null,notes:null}]},
       {date_reference:"ב26 לחודש",project_reference:"לשם",entries:[{employee_reference:"אמיר",regular_hours:10,overtime_hours:null,notes:null}]},

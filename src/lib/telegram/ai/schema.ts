@@ -21,9 +21,15 @@ const reportSchema = z.object({
   date_to_reference: z.string().nullable(),
 });
 
+const entityCreationSchema = z.object({
+  name: z.string().nullable(),
+  phone: z.string().nullable(),
+}).strict();
+
 export const parsedIntentSchema = z.object({
-  intent: z.enum(["CREATE_TIME_ENTRIES", "REPORT_QUERY", "PROJECTS_LIST", "EMPLOYEES_LIST", "TODAY_STATUS", "UNKNOWN"]),
+  intent: z.enum(["CREATE_TIME_ENTRIES", "CREATE_EMPLOYEE", "CREATE_PROJECT", "REPORT_QUERY", "PROJECTS_LIST", "EMPLOYEES_LIST", "TODAY_STATUS", "EMPLOYEE_INFO", "PROJECT_INFO", "HELP", "UNKNOWN"]),
   create_groups: z.array(createGroupSchema).max(30),
+  entity_creation: entityCreationSchema.nullable().default(null),
   report: reportSchema.nullable(),
   missing_information: z.array(z.string()),
 }).strict();
@@ -33,9 +39,9 @@ export type ParsedIntent = z.infer<typeof parsedIntentSchema>;
 export const parsedIntentJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["intent", "create_groups", "report", "missing_information"],
+  required: ["intent", "create_groups", "entity_creation", "report", "missing_information"],
   properties: {
-    intent: { type: "string", enum: ["CREATE_TIME_ENTRIES", "REPORT_QUERY", "PROJECTS_LIST", "EMPLOYEES_LIST", "TODAY_STATUS", "UNKNOWN"] },
+    intent: { type: "string", enum: ["CREATE_TIME_ENTRIES", "CREATE_EMPLOYEE", "CREATE_PROJECT", "REPORT_QUERY", "PROJECTS_LIST", "EMPLOYEES_LIST", "TODAY_STATUS", "EMPLOYEE_INFO", "PROJECT_INFO", "HELP", "UNKNOWN"] },
     create_groups: {
       type: "array",
       maxItems: 30,
@@ -64,6 +70,12 @@ export const parsedIntentJsonSchema = {
           },
         },
       },
+    },
+    entity_creation: {
+      anyOf: [
+        { type: "null" },
+        { type: "object", additionalProperties: false, required: ["name", "phone"], properties: { name: { type: ["string", "null"] }, phone: { type: ["string", "null"] } } },
+      ],
     },
     report: {
       anyOf: [

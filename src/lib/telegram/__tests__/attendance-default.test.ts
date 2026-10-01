@@ -67,7 +67,7 @@ describe("eight-hour Telegram business default",()=>{
   });
 
   it("does not mutate report intents when applying the default",()=>{
-    const report={intent:"REPORT_QUERY" as const,create_groups:[],report:{report_type:"EMPLOYEE" as const,output_format:"TEXT" as const,employee_reference:"יוסף",project_reference:null,date_reference:"היום",date_from_reference:null,date_to_reference:null},missing_information:["hours"]};
+    const report={intent:"REPORT_QUERY" as const,create_groups:[],entity_creation:null,report:{report_type:"EMPLOYEE" as const,output_format:"TEXT" as const,employee_reference:"יוסף",project_reference:null,date_reference:"היום",date_from_reference:null,date_to_reference:null},missing_information:["hours"]};
     expect(applyDefaultWorkdayHours(report)).toEqual(report);
   });
 });

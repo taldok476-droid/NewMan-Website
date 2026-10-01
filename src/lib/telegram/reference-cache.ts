@@ -11,3 +11,5 @@ export const getCachedActiveProjects=()=>cached(projects,getActiveProjectEntitie
 export const getCachedActiveEmployees=()=>cached(employees,getActiveEmployeeEntities);
 
 export function clearReferenceCache(){projects.value=undefined;projects.expiresAt=0;employees.value=undefined;employees.expiresAt=0;}
+export function clearEmployeeReferenceCache(){employees.value=undefined;employees.expiresAt=0;}
+export function clearProjectReferenceCache(){projects.value=undefined;projects.expiresAt=0;}
