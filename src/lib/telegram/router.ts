@@ -55,7 +55,7 @@ export async function routeCommand(
         return "אין לך הרשאה לצפות בהיסטוריית דיווחים דרך הבוט.";
       return formatTodayEntries(await getTodayEntries());
     case "/help":
-      return `הבוט מאפשר צפייה ודיווח בנתוני NEWMAN. אפשר לכתוב בקשות טבעיות בעברית, למשל "היום מואיד עבד אצל טל 8 שעות" או "כמה שעות עבד מואיד החודש?".\n\n${commandList}`;
+      return `הבוט מאפשר צפייה ודיווח בנתוני NEWMAN. אפשר לכתוב בקשות טבעיות בעברית, למשל "היום מואיד עבד אצל טל" או "כמה שעות עבד מואיד החודש?".\n\n${commandList}`;
     default:
       return command.startsWith("/")
         ? "הפקודה אינה מוכרת. לקבלת עזרה ניתן לשלוח /help"

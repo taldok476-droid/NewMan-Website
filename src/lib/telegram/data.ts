@@ -1,6 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { ResolvedDraftEntry } from "./batch";
+import { queryReportRows } from "../report-data";
 
 export async function getActiveProjects(): Promise<string[]> {
   const { data, error } = await createAdminClient()
@@ -105,4 +106,4 @@ export async function cancelTelegramDraft(id:string,chatId:number,userId:number)
 export async function getConversationContext(chatId:number){const {data}=await createAdminClient().from("telegram_conversation_contexts").select("payload,expires_at").eq("chat_id",chatId).maybeSingle();if(!data||new Date(data.expires_at)<=new Date())return null;return data.payload as Record<string,unknown>;}
 export async function saveConversationContext(chatId:number,payload:Record<string,unknown>){const expires=new Date(Date.now()+15*60_000).toISOString();const {error}=await createAdminClient().from("telegram_conversation_contexts").upsert({chat_id:chatId,payload,updated_at:new Date().toISOString(),expires_at:expires});if(error)throw new Error(`Context save failed: ${error.code}`);}
 export async function clearConversationContext(chatId:number){const {error}=await createAdminClient().from("telegram_conversation_contexts").delete().eq("chat_id",chatId);if(error)throw new Error(`Context clear failed: ${error.code}`);}
-export async function queryReport(filters:{employeeId?:string;projectId?:string;fromInclusive:string;toExclusive:string}){let q=createAdminClient().from("time_entries").select("work_date,employee_id,project_id,regular_hours,overtime_hours,source,notes,employees(first_name,last_name),projects(name)").gte("work_date",filters.fromInclusive).lt("work_date",filters.toExclusive);if(filters.employeeId)q=q.eq("employee_id",filters.employeeId);if(filters.projectId)q=q.eq("project_id",filters.projectId);const {data,error}=await q.order("work_date");if(error)throw new Error(`Report query failed: ${error.code}`);return data.map(x=>({work_date:x.work_date,employee_id:x.employee_id,project_id:x.project_id,regular_hours:Number(x.regular_hours),overtime_hours:Number(x.overtime_hours),source:x.source,notes:x.notes,employee:Array.isArray(x.employees)?x.employees[0]:x.employees,project:Array.isArray(x.projects)?x.projects[0]:x.projects}));}
+export async function queryReport(filters:{employeeId?:string;projectId?:string;fromInclusive:string;toExclusive:string}){return queryReportRows(createAdminClient(),filters);}

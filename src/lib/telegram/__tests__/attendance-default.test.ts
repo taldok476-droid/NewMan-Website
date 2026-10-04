@@ -8,16 +8,16 @@ const finalized=(message:string)=>{
   return parsed?applyDefaultWorkdayHours(parsed):null;
 };
 
-describe("eight-hour Telegram business default",()=>{
+describe("ten-hour Telegram business default",()=>{
   it("defaults every employee in the primary list format",()=>{
     const parsed=finalized("היום עובדים אצל טל\nיוסף\nקיס\nמואיד")!;
-    expect(parsed.create_groups[0].entries.map(entry=>entry.regular_hours)).toEqual([8,8,8]);
+    expect(parsed.create_groups[0].entries.map(entry=>entry.regular_hours)).toEqual([10,10,10]);
     expect(parsed.create_groups[0].entries.map(entry=>entry.overtime_hours)).toEqual([0,0,0]);
   });
 
   it("keeps an override local to its employee",()=>{
-    const parsed=finalized("היום עובדים אצל טל\nיוסף\nקיס 10\nמואיד")!;
-    expect(parsed.create_groups[0].entries.map(entry=>entry.regular_hours)).toEqual([8,10,8]);
+    const parsed=finalized("היום עובדים אצל טל\nיוסף\nמואיד 8\nקיס 12")!;
+    expect(parsed.create_groups[0].entries.map(entry=>entry.regular_hours)).toEqual([10,8,12]);
   });
 
   it.each([
@@ -28,18 +28,18 @@ describe("eight-hour Telegram business default",()=>{
     ["קיס - 9.5 שעות",9.5],
   ])("supports list override %s",(line,hours)=>expect(finalized(`היום עובדים אצל טל\n${line}`)?.create_groups[0].entries[0].regular_hours).toBe(hours));
 
-  it("defaults a natural single employee",()=>expect(finalized("היום יוסף עבד אצל טל")?.create_groups[0].entries[0].regular_hours).toBe(8));
+  it("defaults a natural single employee",()=>expect(finalized("היום יוסף עבד אצל טל")?.create_groups[0].entries[0].regular_hours).toBe(10));
 
   it("defaults multiple employees in a natural sentence",()=>{
     const entries=finalized("היום יוסף וקיס עבדו אצל טל")?.create_groups[0].entries;
-    expect(entries?.map(entry=>[entry.employee_reference,entry.regular_hours])).toEqual([["יוסף",8],["קיס",8]]);
+    expect(entries?.map(entry=>[entry.employee_reference,entry.regular_hours])).toEqual([["יוסף",10],["קיס",10]]);
   });
 
   it.each(["בשוהם","עובדים בשוהם","פרויקט שוהם"])("supports a second project section headed %s",header=>{
     const parsed=finalized(`היום עובדים אצל טל\nיוסף\nקיס 10\n\n${header}\nאמיר\nיונתן 9`)!;
     expect(parsed.create_groups.map(group=>[group.date_reference,group.project_reference,group.entries.map(entry=>entry.regular_hours)])).toEqual([
-      ["היום","טל",[8,10]],
-      ["היום","שוהם",[8,9]],
+      ["היום","טל",[10,10]],
+      ["היום","שוהם",[10,9]],
     ]);
   });
 

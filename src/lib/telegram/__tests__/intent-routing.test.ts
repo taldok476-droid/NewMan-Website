@@ -20,10 +20,12 @@ vi.mock("../data",()=>({
 
 import {handleNaturalMessage} from "../natural";
 import type {TelegramActor} from "../auth";
+import {getBusinessDate} from "../../date-ranges";
 
 const employeeIntent={intent:"CREATE_EMPLOYEE",create_groups:[],entity_creation:{name:"אחמד",phone:null},report:null,missing_information:[]};
 const manager:TelegramActor={id:"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",telegramUserId:2,displayName:"Manager",role:"MANAGER",legacy:false};
 const scheduler:TelegramActor={id:"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",telegramUserId:3,displayName:"Scheduler",role:"SCHEDULER",legacy:false};
+const businessDate=getBusinessDate();
 
 describe("two-stage Telegram intent routing",()=>{
   beforeEach(()=>{vi.clearAllMocks();mocks.getContext.mockResolvedValue(null);mocks.findExisting.mockResolvedValue(new Map());mocks.queryReport.mockResolvedValue([]);mocks.createEntityDraft.mockResolvedValue({id:"11111111-1111-1111-1111-111111111111"});mocks.createTelegramDraft.mockResolvedValue({id:"22222222-2222-2222-2222-222222222222"});});
@@ -92,13 +94,13 @@ describe("two-stage Telegram intent routing",()=>{
   });
 
   it("blocks scheduler updates, including mixed batches, before creating a draft",async()=>{
-    mocks.findExisting.mockResolvedValue(new Map([["e1:p1:2026-10-01",{regular_hours:8,overtime_hours:0}]]));
+    mocks.findExisting.mockResolvedValue(new Map([[`e1:p1:${businessDate}`,{regular_hours:8,overtime_hours:0}]]));
     const reply=await handleNaturalMessage(1,3,"היום עובדים אצל טל\nיוסף",scheduler);
     expect(reply.text).toContain("לעדכון דיווח קיים יש לפנות למנהל");
     expect(mocks.createTelegramDraft).not.toHaveBeenCalled();
   });
-  it("allows scheduler attendance and attributes the draft to the scheduler actor",async()=>{const reply=await handleNaturalMessage(1,3,"היום עובדים אצל טל\nיוסף",scheduler);expect(reply.text).toContain("8 שעות");expect(mocks.createTelegramDraft).toHaveBeenCalledWith(expect.objectContaining({telegramActorId:scheduler.id,entries:[expect.objectContaining({employee_id:"e1",regular_hours:8})]}));});
-  it("keeps the manager duplicate update workflow",async()=>{mocks.findExisting.mockResolvedValue(new Map([["e1:p1:2026-10-01",{regular_hours:7,overtime_hours:0}]]));const reply=await handleNaturalMessage(1,2,"היום עובדים אצל טל\nיוסף 8",manager);expect(reply.text).toContain("עדכון דיווח קיים");expect(mocks.createTelegramDraft).toHaveBeenCalled();});
+  it("allows scheduler attendance and attributes the ten-hour default to the scheduler actor",async()=>{const reply=await handleNaturalMessage(1,3,"היום עובדים אצל טל\nיוסף",scheduler);expect(reply.text).toContain("10 שעות");expect(mocks.createTelegramDraft).toHaveBeenCalledWith(expect.objectContaining({telegramActorId:scheduler.id,entries:[expect.objectContaining({employee_id:"e1",regular_hours:10})]}));});
+  it("keeps the manager duplicate update workflow",async()=>{mocks.findExisting.mockResolvedValue(new Map([[`e1:p1:${businessDate}`,{regular_hours:7,overtime_hours:0}]]));const reply=await handleNaturalMessage(1,2,"היום עובדים אצל טל\nיוסף 8",manager);expect(reply.text).toContain("עדכון דיווח קיים");expect(mocks.createTelegramDraft).toHaveBeenCalled();});
   it("routes the exact production schedule identically for manager and scheduler without AI",async()=>{const message=`היום עבדו אצל טל:
 יוסף
 מואיד
@@ -132,6 +134,7 @@ describe("two-stage Telegram intent routing",()=>{
     const schedulerEntries=mocks.createTelegramDraft.mock.calls.at(-1)?.[0].entries;
     expect(schedulerEntries).toEqual(managerEntries);
     expect(schedulerEntries).toHaveLength(17);
+    expect(schedulerEntries.every((entry:Record<string,unknown>)=>entry.regular_hours===10)).toBe(true);
     expect(mocks.aiParse).not.toHaveBeenCalled();
   });
 });

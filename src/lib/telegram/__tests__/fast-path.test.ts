@@ -13,7 +13,7 @@ describe("Telegram deterministic fast path",()=>{
   it("falls back to AI for a complex multi-project message",()=>expect(parseSimpleTimeEntry("היום אצל טל מואיד ויוסף עבדו 8 שעות וקייס 10 שעות ובשוהם ארנון עבד 7.5 שעות")).toBeNull());
   it("falls back to AI for natural report queries",()=>expect(parseSimpleTimeEntry("כמה שעות עבד מואיד אצל טל בספטמבר?")).toBeNull());
   it("falls back to AI for conversational follow-ups",()=>expect(parseSimpleTimeEntry("ואצל טל?")).toBeNull());
-  it("parses a creation sentence without explicit hours using the business default",()=>expect(parseSimpleTimeEntry("היום מואיד עבד אצל טל")?.create_groups[0].entries[0]).toMatchObject({regular_hours:8,overtime_hours:0}));
+  it("parses a creation sentence without explicit hours using the business default",()=>expect(parseSimpleTimeEntry("היום מואיד עבד אצל טל")?.create_groups[0].entries[0]).toMatchObject({regular_hours:10,overtime_hours:0}));
   it("does not parse multiple employees as a single employee",()=>expect(parseSimpleTimeEntry("היום מואיד ויוסף עבד אצל טל 8 שעות")).toBeNull());
   it("keeps unknown employee resolution safe",()=>{const parsed=parseSimpleTimeEntry("היום אלמוני עבד אצל טל 8 שעות")!;expect(resolveEntity(parsed.create_groups[0].entries[0].employee_reference,[{id:"1",name:"מואיד"}]).kind).toBe("not_found");});
   it("keeps unknown project resolution safe",()=>{const parsed=parseSimpleTimeEntry("היום מואיד עבד אצל פרויקטלאקיים 8 שעות")!;expect(resolveEntity(parsed.create_groups[0].project_reference,[{id:"1",name:"עובדי רג״י טל"}]).kind).toBe("not_found");});
@@ -60,7 +60,7 @@ const productionAttendance=`היום עבדו אצל טל:
 
 describe("official Telegram daily schedule",()=>{
   const expectedProjects=["טל","אחזקה","קבלנות","משמיע","שוהם"];
-  it("parses every employee in the exact production message",()=>{const parsed=parseAttendanceList(productionAttendance)!;expect(parsed.create_groups.map(group=>group.project_reference)).toEqual(expectedProjects);expect(parsed.create_groups.every(group=>group.date_reference==="היום")).toBe(true);expect(parsed.create_groups.flatMap(group=>group.entries)).toHaveLength(17);expect(parsed.create_groups.flatMap(group=>group.entries).reduce((sum,entry)=>sum+(entry.regular_hours??0),0)).toBe(136);expect(parsed.create_groups[3].entries.map(entry=>entry.employee_reference)).toEqual(["חוסאם","עבד","בהאא"]);});
+  it("parses every employee in the exact production message",()=>{const parsed=parseAttendanceList(productionAttendance)!;expect(parsed.create_groups.map(group=>group.project_reference)).toEqual(expectedProjects);expect(parsed.create_groups.every(group=>group.date_reference==="היום")).toBe(true);expect(parsed.create_groups.flatMap(group=>group.entries)).toHaveLength(17);expect(parsed.create_groups.flatMap(group=>group.entries).reduce((sum,entry)=>sum+(entry.regular_hours??0),0)).toBe(170);expect(parsed.create_groups[3].entries.map(entry=>entry.employee_reference)).toEqual(["חוסאם","עבד","בהאא"]);});
   it("produces an actor-independent proposal before authorization",()=>{const proposals=["MANAGER","SCHEDULER"].map(()=>parseAttendanceList(productionAttendance));expect(proposals[0]).toEqual(proposals[1]);});
   it("handles CRLF, trailing spaces, and multiple blank lines",()=>{const variant=productionAttendance.replace(/\n/g,"  \r\n").replace(/\r\n\r\n/g,"\r\n\r\n\r\n");expect(parseAttendanceList(variant)?.create_groups.map(group=>group.project_reference)).toEqual(expectedProjects);});
   it("handles the same continuation headers without blank lines",()=>expect(parseAttendanceList(productionAttendance.replace(/\n\n/g,"\n"))?.create_groups).toHaveLength(5));
@@ -68,7 +68,7 @@ describe("official Telegram daily schedule",()=>{
   it.each(["ובשוהם:","ובשוהם","בשוהם:"]) ("strips prefixes and punctuation from continuation %s",header=>expect(parseAttendanceList(`היום עבדו אצל טל:\nיוסף\n${header}\nמואיד`)?.create_groups[1].project_reference).toBe("שוהם"));
   it("supports a bare continuation after a blank boundary",()=>expect(parseAttendanceList("היום עבדו אצל טל\nיוסף\n\nבשוהם\nמואיד")?.create_groups[1].project_reference).toBe("שוהם"));
   it("does not mistake the employee בהאא for a project header",()=>expect(parseAttendanceList("היום עבדו אצל טל\nעבד\nבהאא")?.create_groups[0].entries.map(entry=>entry.employee_reference)).toEqual(["עבד","בהאא"]));
-  it("applies an explicit override only to its own employee",()=>expect(parseAttendanceList("היום עבדו אצל טל\nשריף\nחוסין 10\nמועתז")?.create_groups[0].entries.map(entry=>entry.regular_hours)).toEqual([8,10,8]));
+  it("applies explicit overrides only to their own employees",()=>expect(parseAttendanceList("היום עבדו אצל טל\nשריף\nחוסין 8\nמועתז 12")?.create_groups[0].entries.map(entry=>entry.regular_hours)).toEqual([10,8,12]));
   it("accepts headers without colons",()=>expect(parseAttendanceList(productionAttendance.replaceAll(":",""))?.create_groups.map(group=>group.project_reference)).toEqual(expectedProjects));
 });
 

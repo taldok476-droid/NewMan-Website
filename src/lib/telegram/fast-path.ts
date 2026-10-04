@@ -1,11 +1,11 @@
 import type { ParsedIntent } from "./ai/schema";
+import { DEFAULT_WORK_DAY_HOURS } from "../business-rules";
 import { extractDateExpression } from "./dates";
 import { resolveReportPeriod } from "./reports";
 import { resolveEntity, type NamedEntity } from "./resolution";
 
 const dateExpression = String.raw`(?:היום|אתמול|ב(?:-|\s)?\d{1,2}\s*לחודש|ביום\s+\d{1,2}\s*לחודש|בתאריך\s+\d{1,2}\s*לחודש|בראשון\s*לחודש|ב(?:-|\s)?\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?)`;
 const number = String.raw`(\d+(?:\.\d+)?)`;
-export const DEFAULT_REGULAR_HOURS = 8;
 const patterns = [
   new RegExp(`^(${dateExpression})\\s+(.+?)\\s+עבד(?:ה)?\\s+אצל\\s+(.+?)\\s+${number}\\s+שעות$`),
   new RegExp(`^(${dateExpression})\\s+(.+?)\\s+עבד(?:ה)?\\s+${number}\\s+שעות\\s+אצל\\s+(.+?)$`),
@@ -77,7 +77,7 @@ export function parseSimpleTimeEntry(message: string): ParsedIntent | null {
         create_groups: [{
           date_reference: extracted.expression,
           project_reference: project,
-          entries: employees.map(employee_reference => ({ employee_reference, regular_hours: DEFAULT_REGULAR_HOURS, overtime_hours: 0, notes: null })),
+          entries: employees.map(employee_reference => ({ employee_reference, regular_hours: DEFAULT_WORK_DAY_HOURS, overtime_hours: 0, notes: null })),
         }],
         report: null,
         entity_creation: null,
@@ -106,7 +106,7 @@ function parseAttendanceEmployee(line:string):ParsedIntent["create_groups"][numb
   const match=separated??spaced;
   const employee=(match?.[1]??line).trim();
   if(!employee||/\d/.test(employee)||/^(?:מי|כמה|תן|דוח|עובדים|פרויקט)\b/.test(employee))return null;
-  const hours=match?Number(match[2]):DEFAULT_REGULAR_HOURS;
+  const hours=match?Number(match[2]):DEFAULT_WORK_DAY_HOURS;
   if(!Number.isFinite(hours)||hours<=0||hours>24)return null;
   return{employee_reference:employee,regular_hours:hours,overtime_hours:match?null:0,notes:null};
 }
@@ -145,7 +145,7 @@ export function parseAttendanceList(message:string):ParsedIntent|null{
 /** Applies the business default only to already-classified create proposals. */
 export function applyDefaultWorkdayHours(parsed:ParsedIntent):ParsedIntent{
   if(parsed.intent!=="CREATE_TIME_ENTRIES")return parsed;
-  return{...parsed,missing_information:parsed.missing_information.filter(item=>item!=="hours"),create_groups:parsed.create_groups.map(group=>({...group,entries:group.entries.map(entry=>entry.regular_hours===null?{...entry,regular_hours:DEFAULT_REGULAR_HOURS,overtime_hours:entry.overtime_hours??0}:entry)}))};
+  return{...parsed,missing_information:parsed.missing_information.filter(item=>item!=="hours"),create_groups:parsed.create_groups.map(group=>({...group,entries:group.entries.map(entry=>entry.regular_hours===null?{...entry,regular_hours:DEFAULT_WORK_DAY_HOURS,overtime_hours:entry.overtime_hours??0}:entry)}))};
 }
 
 function parseMultilineGroup(line:string,dateReference:string):ParsedIntent["create_groups"][number]|null{
