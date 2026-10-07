@@ -11,6 +11,7 @@ const callbackQuerySchema = z.object({
   id: z.string().max(200),
   from: z.object({ id: z.number().int() }),
   message: telegramMessageSchema.optional(),
+  inline_message_id: z.string().max(200).optional(),
   data: z.string().max(100).optional(),
 });
 

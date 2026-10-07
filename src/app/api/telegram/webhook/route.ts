@@ -35,16 +35,20 @@ export async function POST(request: Request) {
     const claimed = await timing.measure("idempotency",()=>claimTelegramUpdate(parsed.data.update_id));
     if (!claimed) { timing.log({updateId:parsed.data.update_id,flow:"retry"}); return NextResponse.json({ ok: true }); }
 
-    if (callback?.data && callback.message) {
+    if (callback?.data) {
+      await timing.measure("callback_ack",()=>answerCallbackQuery(callback.id)).catch(()=>undefined);
+      if(!callback.message){
+        console.warn("Telegram callback has no chat message",{updateId:parsed.data.update_id,hasInlineMessageId:Boolean(callback.inline_message_id)});
+        timing.log({updateId:parsed.data.update_id,flow:"callback"});
+        return NextResponse.json({ok:true});
+      }
       const chatId = callback.message.chat.id;
       const actor=await timing.measure("authorization_lookup",()=>getTelegramActor(callback.from.id,chatId,{fresh:true}));
       if (!actor) {
         console.warn("Unauthorized Telegram callback attempt", { chatId });
-        await answerCallbackQuery(callback.id, "אין הרשאה");
       } else {
         const clarification=callback.data.startsWith("clarify:");
         const reply = clarification ? await handleClarificationCallback(chatId,callback.from.id,callback.data,actor,timing) : await handleDraftCallback(chatId, callback.from.id, callback.data);
-        await answerCallbackQuery(callback.id);
         const text=typeof reply==="string"?reply:reply.text,options=typeof reply==="string"?{}:{inlineKeyboard:reply.inlineKeyboard};
         await timing.measure("telegram_send",()=>editCallbackMessage(chatId,callback.message!.message_id,text,options));
       }
